@@ -13,11 +13,11 @@ from . import agents
 
 
 gym.register(
-    id="Template-Unitracker-Lab-v0",
+    id="Template-Unitracker-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.unitracker_lab_env_cfg:UnitrackerLabEnvCfg",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:PPORunnerCfg",
+        "env_cfg_entry_point": f"{__name__}.unitracker_env_cfg:UnitrackerEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:UnitrackerPPORunnerCfg",
     },
 )

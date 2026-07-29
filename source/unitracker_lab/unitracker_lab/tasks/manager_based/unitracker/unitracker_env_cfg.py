@@ -32,7 +32,7 @@ from isaaclab_assets.robots.cartpole import CARTPOLE_CFG  # isort:skip
 
 
 @configclass
-class UnitrackerLabSceneCfg(InteractiveSceneCfg):
+class UnitrackerSceneCfg(InteractiveSceneCfg):
     """Configuration for a cart-pole scene."""
 
     # ground plane
@@ -156,9 +156,9 @@ class TerminationsCfg:
 
 
 @configclass
-class UnitrackerLabEnvCfg(ManagerBasedRLEnvCfg):
+class UnitrackerEnvCfg(ManagerBasedRLEnvCfg):
     # Scene settings
-    scene: UnitrackerLabSceneCfg = UnitrackerLabSceneCfg(num_envs=4096, env_spacing=4.0)
+    scene: UnitrackerSceneCfg = UnitrackerSceneCfg(num_envs=4096, env_spacing=4.0)
     # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
