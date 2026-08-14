@@ -1,0 +1,18 @@
+{
+  "asset": "unitree_g1_29dof_rev_1_0",
+  "source_urdf": "/home/hul/workspace/hl/code/human-humanoid-tools/configs/robots/unitree_g1/g1_29dof_rev_1_0.urdf",
+  "packaged_urdf": "g1_29dof_rev_1_0.urdf",
+  "sha256": "8df048597b758a4f868c1eef12ba995e331420a5aceef810a07c12e3b208ac13",
+  "mesh_count": 35,
+  "import_options": {
+    "fix_base": false,
+    "merge_fixed_joints": false,
+    "replace_cylinders_with_capsules": true,
+    "activate_contact_sensors": true
+  },
+  "reference_pd_project": {
+    "path": "/home/hul/whole_body_tracking",
+    "commit": "cd65172032893724b445448818c34165846d847d"
+  },
+  "license": "Retain and follow the upstream Unitree asset license and repository terms."
+}
