@@ -73,6 +73,8 @@ tests/
 tests/*
 !tests/unitracker_teacher/
 !tests/unitracker_teacher/**
+tests/**/__pycache__/
+tests/**/*.pyc
 
 # Docker history
 .isaac-lab-docker-history
