@@ -18,6 +18,7 @@ for argument in "$@"; do
     if [[ "${argument}" == "--distributed" ]]; then
         : "${NUM_GPUS:?Set NUM_GPUS to the number of local GPUs when using --distributed.}"
         exec "${ISAACLAB_ROOT}/isaaclab.sh" -p -m torch.distributed.run \
+            --standalone \
             --nnodes=1 --nproc_per_node="${NUM_GPUS}" \
             "${REPO_ROOT}/scripts/rsl_rl/teacher/train_teacher.py" "$@"
     fi

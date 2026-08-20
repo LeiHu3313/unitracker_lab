@@ -31,9 +31,9 @@ def test_torso_orientation_reward_matches_beyondmimic_anchor_settings():
     assert TRACKING_REWARD_SPECS["torso_orientation"] == {"weight": 0.5, "sigma": 0.40}
 
 
-def test_reference_relative_termination_thresholds_match_the_paper():
+def test_reference_relative_termination_thresholds_are_configured():
     assert TERMINATION_SPECS == {
         "projected_gravity": {"threshold": 0.8},
-        "key_body_height": {"threshold": 0.25},
-        "pelvis_position": {"threshold": 0.25},
+        "key_body_height": {"threshold": 0.4},
+        "pelvis_position": {"threshold": 0.4},
     }

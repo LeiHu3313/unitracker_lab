@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from datetime import datetime
@@ -33,6 +34,10 @@ parser.add_argument("--video_interval", type=int, default=2000)
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
+if args_cli.distributed:
+    # Match the reference UniTracker launcher: choose the local CUDA device
+    # before Isaac Sim/AppLauncher creates a GPU context.
+    args_cli.device = f"cuda:{os.getenv('LOCAL_RANK', '0')}"
 if args_cli.video:
     args_cli.enable_cameras = True
 sys.argv = [sys.argv[0], *hydra_args]

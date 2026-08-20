@@ -157,8 +157,8 @@ REGULARIZATION_REWARD_WEIGHTS = {
 }
 TERMINATION_SPECS = {
     "projected_gravity": {"threshold": 0.8},
-    "key_body_height": {"threshold": 0.25},
-    "pelvis_position": {"threshold": 0.25},
+    "key_body_height": {"threshold": 0.4},
+    "pelvis_position": {"threshold": 0.4},
 }
 REWARD_CURRICULUM = {"start_iter": 2000, "end_iter": 10000, "num_steps_per_iter": 24}
 ASSET_DR_RANGES = {

@@ -15,6 +15,7 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_error_magnitude
 
+from .adaptive_sampling import AdaptiveEloSampler
 from ..contracts import (
     G1_CONTROLLED_JOINT_NAMES,
     G1_LOCKED_WRIST_JOINT_NAMES,
@@ -65,6 +66,17 @@ class MotionCommand(CommandTerm):
         self._clip_starts = torch.as_tensor(arrays.clip_starts, dtype=torch.long, device=self.device)
         self._clip_lengths = torch.as_tensor(arrays.clip_lengths, dtype=torch.long, device=self.device)
         self._clip_ends = self._clip_starts + self._clip_lengths
+        self._adaptive_sampler = AdaptiveEloSampler(
+            self._clip_starts,
+            self._clip_lengths,
+            fps=self.motion_fps,
+            window_s=cfg.adaptive_window_s,
+            uniform_ratio=cfg.adaptive_uniform_ratio,
+            initial_rating=cfg.adaptive_elo_initial_rating,
+            rating_k=cfg.adaptive_elo_rating_k,
+            sampling_temperature=cfg.adaptive_elo_sampling_temperature,
+            device=self.device,
+        )
         self._joint_pos = torch.as_tensor(arrays.joint_pos, device=self.device)
         self._joint_vel = torch.as_tensor(arrays.joint_vel, device=self.device)
         self._body_pos_w = torch.as_tensor(arrays.body_pos_w, device=self.device)
@@ -73,6 +85,7 @@ class MotionCommand(CommandTerm):
         self._body_ang_vel_w = torch.as_tensor(arrays.body_ang_vel_w, device=self.device)
 
         self.motion_id = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self.window_id = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.phase_index = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.target_index = torch.ones(self.num_envs, dtype=torch.long, device=self.device)
         self.just_reset = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
@@ -83,6 +96,10 @@ class MotionCommand(CommandTerm):
             "joint_velocity_error",
             "body_linear_velocity_error",
             "body_angular_velocity_error",
+            "adaptive_sampling_entropy",
+            "adaptive_sampling_top_probability",
+            "adaptive_elo_rating_mean",
+            "adaptive_elo_rating_std",
         ):
             self.metrics[name] = torch.zeros(self.num_envs, device=self.device)
 
@@ -213,6 +230,7 @@ class MotionCommand(CommandTerm):
         if self.cfg.sampling_mode == "eval":
             motion_id = torch.remainder(env_ids, self.num_motions)
             phase = self._clip_starts[motion_id]
+            window_id = torch.zeros_like(motion_id)
         elif self.cfg.sampling_mode == "uniform":
             # First sample clips uniformly, then sample a valid k uniformly in
             # each clip. Long clips therefore do not dominate short clips.
@@ -222,9 +240,14 @@ class MotionCommand(CommandTerm):
                 dtype=torch.long
             )
             phase = self._clip_starts[motion_id] + phase_offset
+            window_id = torch.zeros_like(motion_id)
+        elif self.cfg.sampling_mode == "adaptive":
+            self._record_adaptive_outcomes(env_ids)
+            window_id, motion_id, phase = self._adaptive_sampler.sample(env_ids.numel())
         else:
             raise ValueError(f"Unknown G1 RSI sampling_mode={self.cfg.sampling_mode!r}")
         self.motion_id[env_ids] = motion_id
+        self.window_id[env_ids] = window_id
         self.phase_index[env_ids] = phase
         self.target_index[env_ids] = phase + 1
         self.just_reset[env_ids] = True
@@ -263,6 +286,37 @@ class MotionCommand(CommandTerm):
         # written into simulator state and observations, not left as a persistent
         # actuator set-point after RSI.
         self.robot.set_joint_velocity_target(torch.zeros_like(joint_vel), env_ids=env_ids)
+
+    def _record_adaptive_outcomes(self, env_ids: torch.Tensor) -> None:
+        """Record the prior episode before command reset clears termination state."""
+
+        completed = self._env.episode_length_buf[env_ids] > 0
+        if not bool(completed.any()):
+            return
+        completed_env_ids = env_ids[completed]
+        # ``terminated`` excludes time-outs.  Surviving the configured horizon
+        # or reaching a clip boundary is success; only tracking failures raise
+        # the difficulty of the sampled RSI window.
+        failures = self._env.termination_manager.terminated[completed_env_ids]
+        self._adaptive_sampler.record_outcomes(self.window_id[completed_env_ids], failures)
+
+    def apply_motion_cache_swap_if_pending_barrier(self) -> bool:
+        """Synchronize adaptive ELO feedback once per PPO rollout."""
+
+        if self.cfg.sampling_mode != "adaptive":
+            return False
+        updated = self._adaptive_sampler.apply_pending_feedback()
+        if not updated:
+            return False
+        probabilities = self._adaptive_sampler.sampling_probabilities()
+        entropy = -(probabilities * probabilities.clamp_min(1.0e-12).log()).sum()
+        if self._adaptive_sampler.num_windows > 1:
+            entropy = entropy / torch.log(torch.tensor(float(self._adaptive_sampler.num_windows), device=self.device))
+        self.metrics["adaptive_sampling_entropy"][:] = entropy
+        self.metrics["adaptive_sampling_top_probability"][:] = probabilities.max()
+        self.metrics["adaptive_elo_rating_mean"][:] = self._adaptive_sampler.ratings.mean()
+        self.metrics["adaptive_elo_rating_std"][:] = self._adaptive_sampler.ratings.std(unbiased=False)
+        return True
 
     def _update_command(self) -> None:
         # A terminated env is RSI-reset inside env.step() before command.compute().
@@ -317,7 +371,12 @@ class MotionCommandCfg(CommandTermCfg):
     controlled_joint_names: list[str] = list(G1_CONTROLLED_JOINT_NAMES)
     locked_joint_names: list[str] = list(G1_LOCKED_WRIST_JOINT_NAMES)
     locked_joint_positions: list[float] = list(G1_LOCKED_WRIST_POSITIONS)
-    sampling_mode: str = "uniform"
+    sampling_mode: str = "adaptive"
+    adaptive_window_s: float = 1.0
+    adaptive_uniform_ratio: float = 0.5
+    adaptive_elo_initial_rating: float = 100.0
+    adaptive_elo_rating_k: float = 32.0
+    adaptive_elo_sampling_temperature: float = 0.3
     resampling_time_range: tuple[float, float] = (1.0e9, 1.0e9)
     debug_vis: bool = False
     current_body_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(

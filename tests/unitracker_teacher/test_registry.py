@@ -20,6 +20,7 @@ def test_teacher_training_entry_point_has_distributed_rank_and_logging_guards():
         Path(__file__).resolve().parents[2] / "scripts/rsl_rl/teacher/train_teacher.py"
     ).read_text(encoding="utf-8")
     assert 'parser.add_argument("--distributed"' in source
+    assert 'args_cli.device = f"cuda:{os.getenv(\'LOCAL_RANK\', \'0\')}"' in source
     assert 'env_cfg.sim.device = f"cuda:{app_launcher.local_rank}"' in source
     assert "seed = agent_cfg.seed + app_launcher.local_rank" in source
     assert "is_main_process = not args_cli.distributed or app_launcher.global_rank == 0" in source
@@ -30,4 +31,19 @@ def test_teacher_training_entry_point_has_distributed_rank_and_logging_guards():
     )
     assert 'if [[ "${argument}" == "--distributed" ]]; then' in launcher
     assert "torch.distributed.run" in launcher
+    assert "--standalone" in launcher
     assert 'nproc_per_node="${NUM_GPUS}"' in launcher
+
+
+def test_teacher_adaptive_sampling_and_runner_sync_hook_are_wired():
+    root = Path(__file__).resolve().parents[2]
+    command_source = (
+        root
+        / "source/unitracker_lab/unitracker_lab/tasks/manager_based/unitracker_teacher/mdp/commands.py"
+    ).read_text(encoding="utf-8")
+    runner_source = (root / "rsl_rl/rsl_rl/runners/on_policy_runner.py").read_text(encoding="utf-8")
+    assert 'sampling_mode: str = "adaptive"' in command_source
+    assert "AdaptiveEloSampler" in command_source
+    assert "_record_adaptive_outcomes" in command_source
+    assert "apply_motion_cache_swap_if_pending_barrier" in command_source
+    assert "_call_env_motion_cache_barrier(self.env)" in runner_source
