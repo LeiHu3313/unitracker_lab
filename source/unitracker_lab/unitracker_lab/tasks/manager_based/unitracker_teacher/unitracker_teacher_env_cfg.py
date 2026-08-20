@@ -165,6 +165,15 @@ class TeacherRewardsCfg:
         weight=TRACKING_REWARD_SPECS["body_orientation"]["weight"],
         params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["body_orientation"]["sigma"]},
     )
+    torso_orientation = RewTerm(
+        func=mdp.torso_orientation_tracking_exp,
+        weight=TRACKING_REWARD_SPECS["torso_orientation"]["weight"],
+        params={
+            "command_name": "motion",
+            "body_name": "torso_link",
+            "sigma": TRACKING_REWARD_SPECS["torso_orientation"]["sigma"],
+        },
+    )
     joint_position = RewTerm(
         func=mdp.joint_position_tracking_exp,
         weight=TRACKING_REWARD_SPECS["joint_position"]["weight"],

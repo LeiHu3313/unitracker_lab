@@ -45,6 +45,22 @@ def body_orientation_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sig
     return _exp_mean_square(error, sigma, (1,))
 
 
+def torso_orientation_tracking_exp(
+    env: ManagerBasedRLEnv, command_name: str, body_name: str, sigma: float
+) -> torch.Tensor:
+    """
+    global-anchor orientation term: exp(-theta^2 / sigma^2).
+    """
+
+    command = _command(env, command_name)
+    try:
+        body_id = command.cfg.body_names.index(body_name)
+    except ValueError as exc:
+        raise ValueError(f"Tracking body {body_name!r} is not configured for the motion command.") from exc
+    error = quat_error_magnitude(command.target_ref_body_quat_w[:, body_id], command.robot_body_quat_w[:, body_id])
+    return torch.exp(-torch.square(error) / (sigma * sigma))
+
+
 def joint_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
     command = _command(env, command_name)
     return _exp_mean_square(command.target_ref_joint_pos - command.robot_joint_pos, sigma, (1,))

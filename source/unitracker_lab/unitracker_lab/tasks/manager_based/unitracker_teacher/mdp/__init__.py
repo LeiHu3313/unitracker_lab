@@ -23,6 +23,7 @@ from .rewards import (
     foot_slip_curriculum,
     joint_position_tracking_exp,
     joint_velocity_tracking_exp,
+    torso_orientation_tracking_exp,
 )
 from .terminations import fall_from_projected_gravity, mean_body_tracking_failure, motion_end
 

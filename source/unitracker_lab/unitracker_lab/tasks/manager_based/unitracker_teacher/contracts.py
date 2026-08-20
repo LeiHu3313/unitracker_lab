@@ -138,27 +138,28 @@ G1_URDF_SHA256 = "8df048597b758a4f868c1eef12ba995e331420a5aceef810a07c12e3b208ac
 
 TRACKING_REWARD_SPECS = OrderedDict(
     (
-        ("body_position", {"weight": 1.6, "sigma": 0.30}),
-        ("feet_position", {"weight": 2.1, "sigma": 0.15}),
-        ("body_orientation", {"weight": 0.5, "sigma": 0.40}),
+        ("body_position", {"weight": 1.0, "sigma": 0.30}),
+        ("feet_position", {"weight": 1.0, "sigma": 0.15}),
+        ("body_orientation", {"weight": 1.0, "sigma": 0.40}),
+        ("torso_orientation", {"weight": 0.5, "sigma": 0.40}),
         ("joint_position", {"weight": 0.75, "sigma": 0.30}),
         ("joint_velocity", {"weight": 0.5, "sigma": 1.0}),
-        ("body_linear_velocity", {"weight": 0.5, "sigma": 1.0}),
-        ("body_angular_velocity", {"weight": 0.5, "sigma": 3.14}),
+        ("body_linear_velocity", {"weight": 1.0, "sigma": 1.0}),
+        ("body_angular_velocity", {"weight": 1.0, "sigma": 3.14}),
     )
 )
 REGULARIZATION_REWARD_WEIGHTS = {
-    "action_rate": -0.5,
+    "action_rate": -0.1,
     "controlled_joint_torque": -1.0e-6,
     "foot_slip": -1.0,
-    "early_termination": -200.0,
+    "early_termination": -100.0,
 }
 REWARD_CURRICULUM = {"start_iter": 2000, "end_iter": 10000, "num_steps_per_iter": 24}
 ASSET_DR_RANGES = {
     "static_friction": (0.3, 1.6),
     "dynamic_friction": (0.3, 1.2),
     "restitution": (0.0, 0.5),
-    "torso_pelvis_com_x": (-0.025, 0.025),
+    "torso_pelvis_com_x": (-0.03, 0.03),
     "torso_pelvis_com_yz": (-0.05, 0.05),
     "link_mass_scale": (0.8, 1.2),
 }
