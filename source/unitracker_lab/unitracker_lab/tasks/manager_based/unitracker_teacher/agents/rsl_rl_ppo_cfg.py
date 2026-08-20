@@ -8,8 +8,8 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 @configclass
 class UnitrackerTeacherPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
-    max_iterations = 30_000
-    save_interval = 500
+    max_iterations = 50_000
+    save_interval = 5000
     experiment_name = "unitracker_teacher"
     run_name = "g1_stage1"
     clip_actions = 1.0
@@ -19,8 +19,8 @@ class UnitrackerTeacherPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         init_noise_std=1.0,
         actor_obs_normalization=True,
         critic_obs_normalization=True,
-        actor_hidden_dims=[512, 256, 128],
-        critic_hidden_dims=[512, 256, 128],
+        actor_hidden_dims=[1024,1024,512,256],
+        critic_hidden_dims=[1024,1024,512,256],
         activation="elu",
     )
     algorithm = RslRlPpoAlgorithmCfg(
