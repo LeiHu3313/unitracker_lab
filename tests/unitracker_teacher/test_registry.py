@@ -13,3 +13,21 @@ def test_only_g1_teacher_ids_are_registered_in_source():
         / "source/unitracker_lab/unitracker_lab/tasks/manager_based/unitracker_teacher"
     )
     assert {path.name for path in task_dir.iterdir() if path.is_dir()} <= {"agents", "mdp", "__pycache__"}
+
+
+def test_teacher_training_entry_point_has_distributed_rank_and_logging_guards():
+    source = (
+        Path(__file__).resolve().parents[2] / "scripts/rsl_rl/teacher/train_teacher.py"
+    ).read_text(encoding="utf-8")
+    assert 'parser.add_argument("--distributed"' in source
+    assert 'env_cfg.sim.device = f"cuda:{app_launcher.local_rank}"' in source
+    assert "seed = agent_cfg.seed + app_launcher.local_rank" in source
+    assert "is_main_process = not args_cli.distributed or app_launcher.global_rank == 0" in source
+    assert "log_dir=str(log_dir) if log_dir is not None else None" in source
+
+    launcher = (Path(__file__).resolve().parents[2] / "scripts/rsl_rl/teacher/train_teacher.sh").read_text(
+        encoding="utf-8"
+    )
+    assert 'if [[ "${argument}" == "--distributed" ]]; then' in launcher
+    assert "torch.distributed.run" in launcher
+    assert 'nproc_per_node="${NUM_GPUS}"' in launcher

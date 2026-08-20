@@ -26,6 +26,7 @@ parser.add_argument("--num_envs", type=int, default=None, help="Override the pro
 parser.add_argument("--max_iterations", type=int, default=None, help="Override the 30000-iteration PPO baseline.")
 parser.add_argument("--seed", type=int, default=None, help="Training seed; -1 samples a seed.")
 parser.add_argument("--task", default="Unitracker_Teacher-v0", choices=["Unitracker_Teacher-v0"])
+parser.add_argument("--distributed", action="store_true", help="Run one teacher-training process per GPU with torchrun.")
 parser.add_argument("--video", action="store_true", help="Record periodic rollout videos.")
 parser.add_argument("--video_length", type=int, default=200)
 parser.add_argument("--video_interval", type=int, default=2000)
@@ -97,6 +98,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg) -> None:
     motion_frame_count = motion.frame_count
     motion_fps = motion.fps
     agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
+    if args_cli.distributed and args_cli.device is not None and "cpu" in args_cli.device:
+        raise ValueError("Distributed teacher training requires a CUDA device.")
+    if args_cli.distributed and args_cli.video:
+        raise ValueError("Video recording is not supported with distributed teacher training.")
     if args_cli.num_envs is not None:
         if args_cli.num_envs <= 0:
             raise ValueError("--num_envs must be positive.")
@@ -105,30 +110,40 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg) -> None:
         if args_cli.max_iterations <= 0:
             raise ValueError("--max_iterations must be positive.")
         agent_cfg.max_iterations = args_cli.max_iterations
-    if args_cli.device is not None:
+    if args_cli.distributed:
+        env_cfg.sim.device = f"cuda:{app_launcher.local_rank}"
+        agent_cfg.device = f"cuda:{app_launcher.local_rank}"
+        seed = agent_cfg.seed + app_launcher.local_rank
+        env_cfg.seed = seed
+        agent_cfg.seed = seed
+    elif args_cli.device is not None:
         env_cfg.sim.device = args_cli.device
         agent_cfg.device = args_cli.device
     env_cfg.commands.motion.motion_file = str(motion_path)
-    env_cfg.seed = agent_cfg.seed
+    if not args_cli.distributed:
+        env_cfg.seed = agent_cfg.seed
 
     log_root = _REPO_ROOT / "logs" / "rsl_rl" / agent_cfg.experiment_name
-    log_root.mkdir(parents=True, exist_ok=True)
-    run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    if agent_cfg.run_name:
-        run_name += f"_{agent_cfg.run_name}"
-    log_dir = log_root / run_name
-    params_dir = log_dir / "params"
-    params_dir.mkdir(parents=True, exist_ok=True)
+    is_main_process = not args_cli.distributed or app_launcher.global_rank == 0
+    log_dir: Path | None = None
+    if is_main_process:
+        log_root.mkdir(parents=True, exist_ok=True)
+        run_name = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        if agent_cfg.run_name:
+            run_name += f"_{agent_cfg.run_name}"
+        log_dir = log_root / run_name
+        params_dir = log_dir / "params"
+        params_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[INFO] G1 motion input: {motion_path}")
-    print(f"[INFO] Motion clips/frames/FPS: {motion_count}/{motion_frame_count}/{motion_fps:g}")
-    print(f"[INFO] Environments: {env_cfg.scene.num_envs}")
-    print(f"[INFO] 23-D action scales: {G1_ACTION_SCALE}")
-    print(f"[INFO] Logging: {log_dir}")
+        print(f"[INFO] G1 motion input: {motion_path}")
+        print(f"[INFO] Motion clips/frames/FPS: {motion_count}/{motion_frame_count}/{motion_fps:g}")
+        print(f"[INFO] Environments per process: {env_cfg.scene.num_envs}")
+        print(f"[INFO] 23-D action scales: {G1_ACTION_SCALE}")
+        print(f"[INFO] Logging: {log_dir}")
 
-    dump_yaml(str(params_dir / "env.yaml"), env_cfg)
-    dump_yaml(str(params_dir / "agent.yaml"), agent_cfg)
-    _write_run_contracts(params_dir, motion_summary, motion_paths)
+        dump_yaml(str(params_dir / "env.yaml"), env_cfg)
+        dump_yaml(str(params_dir / "agent.yaml"), agent_cfg)
+        _write_run_contracts(params_dir, motion_summary, motion_paths)
 
     # MotionCommand loads the dataset onto its target device during gym.make().
     # Release this preflight copy first so large datasets are not resident twice.
@@ -149,7 +164,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg) -> None:
                 disable_logger=True,
             )
         env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
-        runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=str(log_dir), device=agent_cfg.device)
+        runner = OnPolicyRunner(
+            env, agent_cfg.to_dict(), log_dir=str(log_dir) if log_dir is not None else None, device=agent_cfg.device
+        )
         runner.add_git_repo_to_log(__file__)
         if resume_path is not None:
             print(f"[INFO] Resuming checkpoint: {resume_path}")
