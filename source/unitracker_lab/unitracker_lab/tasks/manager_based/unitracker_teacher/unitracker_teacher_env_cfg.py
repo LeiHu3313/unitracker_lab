@@ -26,9 +26,12 @@ from .contracts import (
     CONTROL_DECIMATION,
     G1_CONTROLLED_JOINT_NAMES,
     G1_FOOT_BODY_NAMES,
+    G1_ROOT_BODY_NAME,
+    G1_TERMINATION_KEY_BODY_NAMES,
     PHYSICS_DT,
     REGULARIZATION_REWARD_WEIGHTS,
     REWARD_CURRICULUM,
+    TERMINATION_SPECS,
     TRACKING_REWARD_SPECS,
 )
 
@@ -228,13 +231,25 @@ class TeacherRewardsCfg:
 class TeacherTerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     motion_end = DoneTerm(func=mdp.motion_end, time_out=True, params={"command_name": "motion"})
-    fall = DoneTerm(
-        func=mdp.fall_from_projected_gravity,
-        params={"command_name": "motion", "threshold": 0.8},
+    projected_gravity = DoneTerm(
+        func=mdp.projected_gravity_tracking_failure,
+        params={"command_name": "motion", **TERMINATION_SPECS["projected_gravity"]},
     )
-    tracking_failure = DoneTerm(
-        func=mdp.mean_body_tracking_failure,
-        params={"command_name": "motion", "threshold": 0.5},
+    key_body_height = DoneTerm(
+        func=mdp.key_body_height_tracking_failure,
+        params={
+            "command_name": "motion",
+            "body_names": list(G1_TERMINATION_KEY_BODY_NAMES),
+            **TERMINATION_SPECS["key_body_height"],
+        },
+    )
+    pelvis_position = DoneTerm(
+        func=mdp.pelvis_position_tracking_failure,
+        params={
+            "command_name": "motion",
+            "body_name": G1_ROOT_BODY_NAME,
+            **TERMINATION_SPECS["pelvis_position"],
+        },
     )
 
 

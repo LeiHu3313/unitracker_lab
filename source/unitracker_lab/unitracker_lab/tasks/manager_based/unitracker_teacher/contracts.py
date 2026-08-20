@@ -91,6 +91,7 @@ G1_TRACKING_BODY_NAMES = (
 G1_ROOT_BODY_NAME = "pelvis"
 G1_FOOT_BODY_NAMES = ("left_ankle_roll_link", "right_ankle_roll_link")
 G1_HAND_BODY_NAMES = ("left_rubber_hand", "right_rubber_hand")
+G1_TERMINATION_KEY_BODY_NAMES = (G1_ROOT_BODY_NAME, *G1_FOOT_BODY_NAMES, *G1_HAND_BODY_NAMES)
 
 PHYSICS_DT = 0.005
 CONTROL_DECIMATION = 4
@@ -153,6 +154,11 @@ REGULARIZATION_REWARD_WEIGHTS = {
     "controlled_joint_torque": -1.0e-6,
     "foot_slip": -1.0,
     "early_termination": -100.0,
+}
+TERMINATION_SPECS = {
+    "projected_gravity": {"threshold": 0.8},
+    "key_body_height": {"threshold": 0.25},
+    "pelvis_position": {"threshold": 0.25},
 }
 REWARD_CURRICULUM = {"start_iter": 2000, "end_iter": 10000, "num_steps_per_iter": 24}
 ASSET_DR_RANGES = {
@@ -221,6 +227,8 @@ def contract_dict() -> dict[str, object]:
         "tracking_reward_specs": TRACKING_REWARD_SPECS,
         "regularization_reward_weights": REGULARIZATION_REWARD_WEIGHTS,
         "reward_curriculum": REWARD_CURRICULUM,
+        "termination_key_body_names": list(G1_TERMINATION_KEY_BODY_NAMES),
+        "termination_specs": TERMINATION_SPECS,
         "asset_dr_ranges": ASSET_DR_RANGES,
     }
 
@@ -229,4 +237,6 @@ assert len(G1_CONTROLLED_JOINT_NAMES) == G1_CONTROLLED_DOF
 assert len(G1_LOCKED_WRIST_JOINT_NAMES) == G1_LOCKED_WRIST_DOF
 assert len(set(G1_ALL_JOINT_NAMES)) == G1_PHYSICAL_DOF
 assert len(G1_TRACKING_BODY_NAMES) == G1_TRACKING_BODY_COUNT
+assert len(G1_TERMINATION_KEY_BODY_NAMES) == 5
+assert set(G1_TERMINATION_KEY_BODY_NAMES).issubset(G1_TRACKING_BODY_NAMES)
 assert ORACLE_OBSERVATION_DIM == 716

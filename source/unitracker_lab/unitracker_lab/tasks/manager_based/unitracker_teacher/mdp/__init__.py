@@ -25,6 +25,11 @@ from .rewards import (
     joint_velocity_tracking_exp,
     torso_orientation_tracking_exp,
 )
-from .terminations import fall_from_projected_gravity, mean_body_tracking_failure, motion_end
+from .terminations import (
+    key_body_height_tracking_failure,
+    motion_end,
+    pelvis_position_tracking_failure,
+    projected_gravity_tracking_failure,
+)
 
 __all__ = [name for name in globals() if not name.startswith("_")]

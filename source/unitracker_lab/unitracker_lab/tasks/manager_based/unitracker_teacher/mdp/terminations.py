@@ -23,14 +23,36 @@ def motion_end(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
     return command.target_index >= command.active_clip_end - 1
 
 
-def fall_from_projected_gravity(env: ManagerBasedRLEnv, command_name: str, threshold: float) -> torch.Tensor:
+def projected_gravity_tracking_failure(env: ManagerBasedRLEnv, command_name: str, threshold: float) -> torch.Tensor:
+    """Terminate when pelvis projected gravity differs too far from the reference."""
+
     command = _command(env, command_name)
     gravity_w = command.robot.data.GRAVITY_VEC_W
-    gravity_root = math_utils.quat_apply_inverse(command.robot_root_quat_w, gravity_w)
-    return torch.amax(torch.abs(gravity_root[:, :2]), dim=-1) > threshold
+    root_id = command.cfg.body_names.index(command.cfg.root_body_name)
+    reference_gravity_root = math_utils.quat_apply_inverse(command.target_ref_body_quat_w[:, root_id], gravity_w)
+    robot_gravity_root = math_utils.quat_apply_inverse(command.robot_root_quat_w, gravity_w)
+    return torch.linalg.vector_norm(robot_gravity_root - reference_gravity_root, dim=-1) > threshold
 
 
-def mean_body_tracking_failure(env: ManagerBasedRLEnv, command_name: str, threshold: float) -> torch.Tensor:
+def key_body_height_tracking_failure(
+    env: ManagerBasedRLEnv, command_name: str, body_names: list[str], threshold: float
+) -> torch.Tensor:
+    """Terminate when a pelvis, ankle, or hand vertical error exceeds the threshold."""
+
     command = _command(env, command_name)
-    distance = torch.linalg.vector_norm(command.target_ref_body_pos_w - command.robot_body_pos_w, dim=-1)
-    return distance.mean(dim=-1) > threshold
+    body_ids = [command.cfg.body_names.index(name) for name in body_names]
+    height_error = torch.abs(command.target_ref_body_pos_w[:, body_ids, 2] - command.robot_body_pos_w[:, body_ids, 2])
+    return torch.amax(height_error, dim=-1) > threshold
+
+
+def pelvis_position_tracking_failure(
+    env: ManagerBasedRLEnv, command_name: str, body_name: str, threshold: float
+) -> torch.Tensor:
+    """Terminate when the pelvis position drifts too far from its reference."""
+
+    command = _command(env, command_name)
+    body_id = command.cfg.body_names.index(body_name)
+    position_error = torch.linalg.vector_norm(
+        command.target_ref_body_pos_w[:, body_id] - command.robot_body_pos_w[:, body_id], dim=-1
+    )
+    return position_error > threshold
