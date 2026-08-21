@@ -26,17 +26,14 @@ from .contracts import (
     CONTROL_DECIMATION,
     G1_CONTROLLED_JOINT_NAMES,
     G1_FOOT_BODY_NAMES,
+    G1_LOCAL_FIVE_POINT_BODY_NAMES,
     G1_ROOT_BODY_NAME,
     G1_TERMINATION_KEY_BODY_NAMES,
     PHYSICS_DT,
     REGULARIZATION_REWARD_WEIGHTS,
-    REWARD_CURRICULUM,
     TERMINATION_SPECS,
     TRACKING_REWARD_SPECS,
 )
-
-CURRICULUM = dict(REWARD_CURRICULUM)
-
 
 @configclass
 class TeacherSceneCfg(InteractiveSceneCfg):
@@ -149,33 +146,34 @@ class TeacherEventsCfg:
 
 @configclass
 class TeacherRewardsCfg:
+    base_position = RewTerm(
+        func=mdp.base_position_tracking_exp,
+        weight=TRACKING_REWARD_SPECS["base_position"]["weight"],
+        params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["base_position"]["sigma"]},
+    )
+    base_orientation = RewTerm(
+        func=mdp.base_orientation_tracking_exp,
+        weight=TRACKING_REWARD_SPECS["base_orientation"]["weight"],
+        params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["base_orientation"]["sigma"]},
+    )
+    local_five_point_position = RewTerm(
+        func=mdp.local_five_point_position_tracking_exp,
+        weight=TRACKING_REWARD_SPECS["local_five_point_position"]["weight"],
+        params={
+            "command_name": "motion",
+            "body_names": list(G1_LOCAL_FIVE_POINT_BODY_NAMES),
+            "sigma": TRACKING_REWARD_SPECS["local_five_point_position"]["sigma"],
+        },
+    )
     body_position = RewTerm(
         func=mdp.body_position_tracking_exp,
         weight=TRACKING_REWARD_SPECS["body_position"]["weight"],
         params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["body_position"]["sigma"]},
     )
-    feet_position = RewTerm(
-        func=mdp.feet_position_tracking_exp,
-        weight=TRACKING_REWARD_SPECS["feet_position"]["weight"],
-        params={
-            "command_name": "motion",
-            "body_names": list(G1_FOOT_BODY_NAMES),
-            "sigma": TRACKING_REWARD_SPECS["feet_position"]["sigma"],
-        },
-    )
     body_orientation = RewTerm(
         func=mdp.body_orientation_tracking_exp,
         weight=TRACKING_REWARD_SPECS["body_orientation"]["weight"],
         params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["body_orientation"]["sigma"]},
-    )
-    torso_orientation = RewTerm(
-        func=mdp.torso_orientation_tracking_exp,
-        weight=TRACKING_REWARD_SPECS["torso_orientation"]["weight"],
-        params={
-            "command_name": "motion",
-            "body_name": "torso_link",
-            "sigma": TRACKING_REWARD_SPECS["torso_orientation"]["sigma"],
-        },
     )
     joint_position = RewTerm(
         func=mdp.joint_position_tracking_exp,
@@ -197,33 +195,38 @@ class TeacherRewardsCfg:
         weight=TRACKING_REWARD_SPECS["body_angular_velocity"]["weight"],
         params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["body_angular_velocity"]["sigma"]},
     )
+    torso_orientation = RewTerm(
+        func=mdp.torso_orientation_tracking_exp,
+        weight=TRACKING_REWARD_SPECS["torso_orientation"]["weight"],
+        params={
+            "command_name": "motion",
+            "body_name": "torso_link",
+            "sigma": TRACKING_REWARD_SPECS["torso_orientation"]["sigma"],
+        },
+    )
     action_rate = RewTerm(
-        func=mdp.action_rate_curriculum,
+        func=mdp.action_rate_penalty,
         weight=REGULARIZATION_REWARD_WEIGHTS["action_rate"],
-        params=dict(CURRICULUM),
     )
     controlled_joint_torque = RewTerm(
-        func=mdp.controlled_joint_torque_curriculum,
+        func=mdp.controlled_joint_torque_penalty,
         weight=REGULARIZATION_REWARD_WEIGHTS["controlled_joint_torque"],
         params={
             "asset_cfg": SceneEntityCfg("robot", joint_names=list(G1_CONTROLLED_JOINT_NAMES), preserve_order=True),
-            **CURRICULUM,
         },
     )
     foot_slip = RewTerm(
-        func=mdp.foot_slip_curriculum,
+        func=mdp.foot_slip_penalty,
         weight=REGULARIZATION_REWARD_WEIGHTS["foot_slip"],
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=list(G1_FOOT_BODY_NAMES), preserve_order=True),
             "asset_cfg": SceneEntityCfg("robot", body_names=list(G1_FOOT_BODY_NAMES), preserve_order=True),
             "threshold": 1.0,
-            **CURRICULUM,
         },
     )
     early_termination = RewTerm(
-        func=mdp.early_termination_penalty_curriculum,
+        func=mdp.early_termination_penalty,
         weight=REGULARIZATION_REWARD_WEIGHTS["early_termination"],
-        params=dict(CURRICULUM),
     )
 
 

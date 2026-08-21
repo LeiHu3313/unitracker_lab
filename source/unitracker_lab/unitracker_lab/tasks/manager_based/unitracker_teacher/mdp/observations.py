@@ -1,4 +1,4 @@
-"""716-D privileged oracle observation for the G1 Stage-1 teacher."""
+"""588-D privileged oracle observation for the G1 Stage-1 teacher."""
 
 from __future__ import annotations
 
@@ -45,32 +45,65 @@ def _rot6d(quaternions: torch.Tensor) -> torch.Tensor:
 
 
 def teacher_oracle_observation(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
-    """Return current privileged state plus the explicit next-frame tracking goal."""
+    """Return root/body state plus an explicit, translation-invariant ``t -> t+1`` goal.
+
+    The pelvis is represented once as a root block.  All remaining tracking
+    bodies are root-local, so global root x/y translation and absolute yaw do
+    not enter the policy ABI.  Root orientation tracking remains observable
+    through the target rotation error and root angular-velocity error.
+    """
 
     command = _command(env, command_name)
     root_pos_w = command.robot_root_pos_w
     root_quat_w = command.robot_root_quat_w
-    robot_body_pos_w = command.robot_body_pos_w
-    robot_body_quat_w = command.robot_body_quat_w
+    # The hard body-order contract puts pelvis/root at index zero.  Excluding
+    # it from body blocks avoids constant root-local position/orientation terms.
+    non_root = slice(1, None)
+    robot_body_pos_w = command.robot_body_pos_w[:, non_root]
+    robot_body_quat_w = command.robot_body_quat_w[:, non_root]
+    robot_body_lin_vel_w = command.robot_body_lin_vel_w[:, non_root]
+    robot_body_ang_vel_w = command.robot_body_ang_vel_w[:, non_root]
+    target_body_pos_w = command.target_ref_body_pos_w[:, non_root]
+    target_body_quat_w = command.target_ref_body_quat_w[:, non_root]
+    target_body_lin_vel_w = command.target_ref_body_lin_vel_w[:, non_root]
+    target_body_ang_vel_w = command.target_ref_body_ang_vel_w[:, non_root]
+
+    root_height = root_pos_w[:, 2:3] - env.scene.env_origins[:, 2:3]
+    gravity_w = torch.zeros_like(root_pos_w)
+    gravity_w[:, 2] = -1.0
+    projected_gravity = math_utils.quat_apply_inverse(root_quat_w, gravity_w)
+    root_lin_vel_local = math_utils.quat_apply_inverse(root_quat_w, command.robot_body_lin_vel_w[:, 0])
+    root_ang_vel_local = math_utils.quat_apply_inverse(root_quat_w, command.robot_body_ang_vel_w[:, 0])
 
     current_body_pos_local = _rotate_inverse(root_quat_w, robot_body_pos_w - root_pos_w[:, None, :])
     current_body_ori_local = _rot6d(_relative_quat(root_quat_w, robot_body_quat_w))
-    current_body_lin_vel_local = _rotate_inverse(root_quat_w, command.robot_body_lin_vel_w)
-    current_body_ang_vel_local = _rotate_inverse(root_quat_w, command.robot_body_ang_vel_w)
+    current_body_lin_vel_local = _rotate_inverse(root_quat_w, robot_body_lin_vel_w)
+    current_body_ang_vel_local = _rotate_inverse(root_quat_w, robot_body_ang_vel_w)
 
-    target_pos_error_local = _rotate_inverse(root_quat_w, command.target_ref_body_pos_w - robot_body_pos_w)
-    target_ori_error = _rot6d(_quat_error(robot_body_quat_w, command.target_ref_body_quat_w))
-    target_lin_vel_error_local = _rotate_inverse(
-        root_quat_w, command.target_ref_body_lin_vel_w - command.robot_body_lin_vel_w
+    target_root_pos_w = command.target_ref_body_pos_w[:, 0]
+    target_root_quat_w = command.target_ref_body_quat_w[:, 0]
+    target_root_lin_vel_w = command.target_ref_body_lin_vel_w[:, 0]
+    target_root_ang_vel_w = command.target_ref_body_ang_vel_w[:, 0]
+    target_root_height_error = target_root_pos_w[:, 2:3] - root_pos_w[:, 2:3]
+    target_root_ori_error = _rot6d(_quat_error(root_quat_w, target_root_quat_w))
+    target_root_lin_vel_error_local = math_utils.quat_apply_inverse(
+        root_quat_w, target_root_lin_vel_w - command.robot_body_lin_vel_w[:, 0]
     )
-    target_ang_vel_error_local = _rotate_inverse(
-        root_quat_w, command.target_ref_body_ang_vel_w - command.robot_body_ang_vel_w
+    target_root_ang_vel_error_local = math_utils.quat_apply_inverse(
+        root_quat_w, target_root_ang_vel_w - command.robot_body_ang_vel_w[:, 0]
     )
-    target_body_pos_relative_root = _rotate_inverse(root_quat_w, command.target_ref_body_pos_w - root_pos_w[:, None, :])
-    target_body_ori_relative_root = _rot6d(_relative_quat(root_quat_w, command.target_ref_body_quat_w))
+
+    target_body_pos_error_local = _rotate_inverse(root_quat_w, target_body_pos_w - robot_body_pos_w)
+    target_body_ori_error = _rot6d(_quat_error(robot_body_quat_w, target_body_quat_w))
+    target_body_lin_vel_error_local = _rotate_inverse(root_quat_w, target_body_lin_vel_w - robot_body_lin_vel_w)
+    target_body_ang_vel_error_local = _rotate_inverse(root_quat_w, target_body_ang_vel_w - robot_body_ang_vel_w)
 
     previous_action = env.action_manager.action
     blocks = (
+        root_height,
+        projected_gravity,
+        root_lin_vel_local,
+        root_ang_vel_local,
         current_body_pos_local.flatten(1),
         current_body_ori_local.flatten(1),
         current_body_lin_vel_local.flatten(1),
@@ -78,13 +111,16 @@ def teacher_oracle_observation(env: ManagerBasedRLEnv, command_name: str) -> tor
         command.robot_joint_pos,
         command.robot_joint_vel,
         previous_action,
-        target_pos_error_local.flatten(1),
+        target_root_height_error,
+        target_root_ori_error,
+        target_root_lin_vel_error_local,
+        target_root_ang_vel_error_local,
+        target_body_pos_error_local.flatten(1),
+        target_body_ori_error.flatten(1),
+        target_body_lin_vel_error_local.flatten(1),
+        target_body_ang_vel_error_local.flatten(1),
         command.target_ref_joint_pos - command.robot_joint_pos,
-        target_ori_error.flatten(1),
-        target_lin_vel_error_local.flatten(1),
-        target_ang_vel_error_local.flatten(1),
-        target_body_pos_relative_root.flatten(1),
-        target_body_ori_relative_root.flatten(1),
+        command.target_ref_joint_vel - command.robot_joint_vel,
     )
     observation = torch.cat(blocks, dim=-1)
     if observation.shape[-1] != ORACLE_OBSERVATION_DIM:

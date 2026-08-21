@@ -13,16 +13,22 @@ from .curriculum import linear_curriculum_scale, regularization_scale
 from .observations import teacher_oracle_observation
 from .rewards import (
     action_rate_curriculum,
+    action_rate_penalty,
+    base_orientation_tracking_exp,
+    base_position_tracking_exp,
     body_angular_velocity_tracking_exp,
     body_linear_velocity_tracking_exp,
     body_orientation_tracking_exp,
     body_position_tracking_exp,
     controlled_joint_torque_curriculum,
+    controlled_joint_torque_penalty,
     early_termination_penalty_curriculum,
-    feet_position_tracking_exp,
+    early_termination_penalty,
     foot_slip_curriculum,
+    foot_slip_penalty,
     joint_position_tracking_exp,
     joint_velocity_tracking_exp,
+    local_five_point_position_tracking_exp,
     torso_orientation_tracking_exp,
 )
 from .terminations import (

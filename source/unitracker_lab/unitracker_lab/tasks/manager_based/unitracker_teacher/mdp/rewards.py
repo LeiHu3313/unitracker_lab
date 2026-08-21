@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from isaaclab.managers import SceneEntityCfg
+from isaaclab.utils import math as math_utils
 from isaaclab.utils.math import quat_error_magnitude
 
 from .commands import MotionCommand
@@ -26,22 +27,87 @@ def _exp_mean_square(error: torch.Tensor, sigma: float, dims: tuple[int, ...]) -
     return torch.exp(-torch.square(error).mean(dim=dims) / (sigma * sigma))
 
 
-def body_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
+def _body_ids(command: MotionCommand, body_names: list[str]) -> list[int]:
+    """Resolve named tracking bodies and reject a silently stale config."""
+
+    try:
+        return [command.cfg.body_names.index(name) for name in body_names]
+    except ValueError as exc:
+        raise ValueError(f"Tracking body in {body_names!r} is not configured for the motion command.") from exc
+
+
+def _root_local_positions(body_pos_w: torch.Tensor, root_pos_w: torch.Tensor, root_quat_w: torch.Tensor) -> torch.Tensor:
+    """Express a batch of world positions in its corresponding root frame."""
+
+    vectors_w = body_pos_w - root_pos_w[:, None, :]
+    roots = root_quat_w[:, None, :].expand(-1, vectors_w.shape[1], -1)
+    return math_utils.quat_apply_inverse(roots.reshape(-1, 4), vectors_w.reshape(-1, 3)).reshape_as(vectors_w)
+
+
+def _root_relative_quaternions(body_quat_w: torch.Tensor, root_quat_w: torch.Tensor) -> torch.Tensor:
+    """Return body orientations relative to the corresponding root orientation."""
+
+    roots = root_quat_w[:, None, :].expand(-1, body_quat_w.shape[1], -1)
+    return math_utils.quat_mul(
+        math_utils.quat_inv(roots.reshape(-1, 4)), body_quat_w.reshape(-1, 4)
+    ).reshape_as(body_quat_w)
+
+
+def _root_relative_position_error(command: MotionCommand, body_ids: list[int]) -> torch.Tensor:
+    """Reference and robot positions in their own root-local frames."""
+
+    robot_local = _root_local_positions(
+        command.robot_body_pos_w[:, body_ids], command.robot_root_pos_w, command.robot_root_quat_w
+    )
+    reference_local = _root_local_positions(
+        command.target_ref_body_pos_w[:, body_ids],
+        command.target_ref_body_pos_w[:, 0],
+        command.target_ref_body_quat_w[:, 0],
+    )
+    return reference_local - robot_local
+
+
+def base_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
+    """Track the pelvis/base global xyz position."""
+
     command = _command(env, command_name)
-    return _exp_mean_square(command.target_ref_body_pos_w - command.robot_body_pos_w, sigma, (1, 2))
+    return _exp_mean_square(command.target_ref_body_pos_w[:, 0] - command.robot_root_pos_w, sigma, (1,))
 
 
-def feet_position_tracking_exp(
+def base_orientation_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
+    """Track the pelvis/base global orientation, including yaw."""
+
+    command = _command(env, command_name)
+    error = quat_error_magnitude(command.target_ref_body_quat_w[:, 0], command.robot_root_quat_w)
+    return torch.exp(-torch.square(error) / (sigma * sigma))
+
+
+def body_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
+    """Track non-root body layout in root-local coordinates, not world position."""
+
+    command = _command(env, command_name)
+    body_ids = list(range(1, len(command.cfg.body_names)))
+    return _exp_mean_square(_root_relative_position_error(command, body_ids), sigma, (1, 2))
+
+
+def local_five_point_position_tracking_exp(
     env: ManagerBasedRLEnv, command_name: str, body_names: list[str], sigma: float
 ) -> torch.Tensor:
+    """Emphasize root-local trunk, ankle, and wrist tracking (the paper's B5 term)."""
+
     command = _command(env, command_name)
-    ids = [command.cfg.body_names.index(name) for name in body_names]
-    return _exp_mean_square(command.target_ref_body_pos_w[:, ids] - command.robot_body_pos_w[:, ids], sigma, (1, 2))
+    return _exp_mean_square(_root_relative_position_error(command, _body_ids(command, body_names)), sigma, (1, 2))
 
 
 def body_orientation_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
+    """Track non-root body orientation relative to each pose's root orientation."""
+
     command = _command(env, command_name)
-    error = quat_error_magnitude(command.target_ref_body_quat_w, command.robot_body_quat_w)
+    robot_relative = _root_relative_quaternions(command.robot_body_quat_w[:, 1:], command.robot_root_quat_w)
+    reference_relative = _root_relative_quaternions(
+        command.target_ref_body_quat_w[:, 1:], command.target_ref_body_quat_w[:, 0]
+    )
+    error = quat_error_magnitude(reference_relative, robot_relative)
     return _exp_mean_square(error, sigma, (1,))
 
 
@@ -81,11 +147,23 @@ def body_angular_velocity_tracking_exp(env: ManagerBasedRLEnv, command_name: str
     return _exp_mean_square(command.target_ref_body_ang_vel_w - command.robot_body_ang_vel_w, sigma, (1, 2))
 
 
+def action_rate_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Unscheduled action-rate penalty used by the active teacher task."""
+
+    return torch.square(env.action_manager.action - env.action_manager.prev_action).sum(dim=1)
+
+
 def action_rate_curriculum(
     env: ManagerBasedRLEnv, start_iter: int, end_iter: int, num_steps_per_iter: int
 ) -> torch.Tensor:
-    penalty = torch.square(env.action_manager.action - env.action_manager.prev_action).sum(dim=1)
-    return penalty * regularization_scale(env, start_iter, end_iter, num_steps_per_iter)
+    return action_rate_penalty(env) * regularization_scale(env, start_iter, end_iter, num_steps_per_iter)
+
+
+def controlled_joint_torque_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Unscheduled controlled-joint torque penalty used by the active task."""
+
+    asset = env.scene[asset_cfg.name]
+    return torch.square(asset.data.applied_torque[:, asset_cfg.joint_ids]).sum(dim=1)
 
 
 def controlled_joint_torque_curriculum(
@@ -95,9 +173,24 @@ def controlled_joint_torque_curriculum(
     end_iter: int,
     num_steps_per_iter: int,
 ) -> torch.Tensor:
+    return controlled_joint_torque_penalty(env, asset_cfg) * regularization_scale(
+        env, start_iter, end_iter, num_steps_per_iter
+    )
+
+
+def foot_slip_penalty(
+    env: ManagerBasedRLEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg,
+    threshold: float,
+) -> torch.Tensor:
+    """Unscheduled foot-slip penalty used by the active teacher task."""
+
+    sensor = env.scene[sensor_cfg.name]
     asset = env.scene[asset_cfg.name]
-    penalty = torch.square(asset.data.applied_torque[:, asset_cfg.joint_ids]).sum(dim=1)
-    return penalty * regularization_scale(env, start_iter, end_iter, num_steps_per_iter)
+    contact_force = torch.linalg.vector_norm(sensor.data.net_forces_w_history[:, 0, sensor_cfg.body_ids], dim=-1)
+    planar_speed_sq = torch.square(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2]).sum(dim=-1)
+    return (planar_speed_sq * (contact_force > threshold)).mean(dim=-1)
 
 
 def foot_slip_curriculum(
@@ -109,18 +202,18 @@ def foot_slip_curriculum(
     end_iter: int,
     num_steps_per_iter: int,
 ) -> torch.Tensor:
-    sensor = env.scene[sensor_cfg.name]
-    asset = env.scene[asset_cfg.name]
-    contact_force = torch.linalg.vector_norm(sensor.data.net_forces_w_history[:, 0, sensor_cfg.body_ids], dim=-1)
-    planar_speed_sq = torch.square(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2]).sum(dim=-1)
-    penalty = (planar_speed_sq * (contact_force > threshold)).mean(dim=-1)
-    return penalty * regularization_scale(env, start_iter, end_iter, num_steps_per_iter)
+    return foot_slip_penalty(env, sensor_cfg, asset_cfg, threshold) * regularization_scale(
+        env, start_iter, end_iter, num_steps_per_iter
+    )
+
+
+def early_termination_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Return 1/dt on failures so RewardManager's dt integration yields one event penalty."""
+
+    return env.termination_manager.terminated.to(dtype=torch.float32) / env.step_dt
 
 
 def early_termination_penalty_curriculum(
     env: ManagerBasedRLEnv, start_iter: int, end_iter: int, num_steps_per_iter: int
 ) -> torch.Tensor:
-    """Return 1/dt on failures so RewardManager's dt integration yields one event penalty."""
-
-    failure = env.termination_manager.terminated.to(dtype=torch.float32)
-    return failure / env.step_dt * regularization_scale(env, start_iter, end_iter, num_steps_per_iter)
+    return early_termination_penalty(env) * regularization_scale(env, start_iter, end_iter, num_steps_per_iter)

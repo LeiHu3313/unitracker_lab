@@ -89,8 +89,13 @@ G1_TRACKING_BODY_NAMES = (
     "right_rubber_hand",
 )
 G1_ROOT_BODY_NAME = "pelvis"
+G1_NON_ROOT_TRACKING_BODY_NAMES = G1_TRACKING_BODY_NAMES[1:]
+G1_NON_ROOT_TRACKING_BODY_COUNT = len(G1_NON_ROOT_TRACKING_BODY_NAMES)
 G1_FOOT_BODY_NAMES = ("left_ankle_roll_link", "right_ankle_roll_link")
 G1_HAND_BODY_NAMES = ("left_rubber_hand", "right_rubber_hand")
+# The paper's local five-point term: trunk, both ankle endpoints, both wrists.
+# Keep this order stable because it is recorded in each run's contract snapshot.
+G1_LOCAL_FIVE_POINT_BODY_NAMES = ("torso_link", *G1_FOOT_BODY_NAMES, *G1_HAND_BODY_NAMES)
 G1_TERMINATION_KEY_BODY_NAMES = (G1_ROOT_BODY_NAME, *G1_FOOT_BODY_NAMES, *G1_HAND_BODY_NAMES)
 
 PHYSICS_DT = 0.005
@@ -102,20 +107,27 @@ ACTION_DIM = G1_CONTROLLED_DOF
 # The insertion order is the tensor concatenation order in observations.py.
 ORACLE_OBSERVATION_BLOCK_DIMS = OrderedDict(
     (
-        ("current_body_pos_local", 48),
-        ("current_body_ori_rot6d_local", 96),
-        ("current_body_lin_vel_local", 48),
-        ("current_body_ang_vel_local", 48),
+        ("current_root_height", 1),
+        ("current_projected_gravity", 3),
+        ("current_root_lin_vel_local", 3),
+        ("current_root_ang_vel_local", 3),
+        ("current_non_root_body_pos_local", 45),
+        ("current_non_root_body_ori_rot6d_local", 90),
+        ("current_non_root_body_lin_vel_local", 45),
+        ("current_non_root_body_ang_vel_local", 45),
         ("current_joint_pos", 23),
         ("current_joint_vel", 23),
         ("previous_action", 23),
-        ("next_body_pos_error_local", 48),
+        ("next_root_height_error", 1),
+        ("next_root_ori_error_rot6d", 6),
+        ("next_root_lin_vel_error_local", 3),
+        ("next_root_ang_vel_error_local", 3),
+        ("next_non_root_body_pos_error_local", 45),
+        ("next_non_root_body_ori_error_rot6d", 90),
+        ("next_non_root_body_lin_vel_error_local", 45),
+        ("next_non_root_body_ang_vel_error_local", 45),
         ("next_joint_pos_error", 23),
-        ("next_body_ori_error_rot6d", 96),
-        ("next_body_lin_vel_error_local", 48),
-        ("next_body_ang_vel_error_local", 48),
-        ("next_body_pos_relative_root", 48),
-        ("next_body_ori_relative_root_rot6d", 96),
+        ("next_joint_vel_error", 23),
     )
 )
 ORACLE_OBSERVATION_DIM = sum(ORACLE_OBSERVATION_BLOCK_DIMS.values())
@@ -139,14 +151,20 @@ G1_URDF_SHA256 = "8df048597b758a4f868c1eef12ba995e331420a5aceef810a07c12e3b208ac
 
 TRACKING_REWARD_SPECS = OrderedDict(
     (
+        # Global pelvis/base anchor.
+        ("base_position", {"weight": 1.0, "sigma": 0.30}),
+        ("base_orientation", {"weight": 1.0, "sigma": 0.40}),
+        # Relative whole-body pose.
+        ("local_five_point_position", {"weight": 2.0, "sigma": 0.12}),
         ("body_position", {"weight": 1.0, "sigma": 0.30}),
-        ("feet_position", {"weight": 1.0, "sigma": 0.15}),
         ("body_orientation", {"weight": 1.0, "sigma": 0.40}),
-        ("torso_orientation", {"weight": 0.5, "sigma": 0.40}),
+        # Joint and whole-body dynamical tracking.
         ("joint_position", {"weight": 0.75, "sigma": 0.30}),
         ("joint_velocity", {"weight": 0.5, "sigma": 1.0}),
         ("body_linear_velocity", {"weight": 1.0, "sigma": 1.0}),
         ("body_angular_velocity", {"weight": 1.0, "sigma": 3.14}),
+        # Extra global torso rotation signal for high-dynamic motions.
+        ("torso_orientation", {"weight": 1.0, "sigma": 0.40}),
     )
 )
 REGULARIZATION_REWARD_WEIGHTS = {
@@ -160,7 +178,8 @@ TERMINATION_SPECS = {
     "key_body_height": {"threshold": 0.4},
     "pelvis_position": {"threshold": 0.4},
 }
-REWARD_CURRICULUM = {"start_iter": 2000, "end_iter": 10000, "num_steps_per_iter": 24}
+
+REWARD_CURRICULUM = None
 ASSET_DR_RANGES = {
     "static_friction": (0.3, 1.6),
     "dynamic_friction": (0.3, 1.2),
@@ -206,8 +225,10 @@ def contract_dict() -> dict[str, object]:
         "locked_wrist_positions": list(G1_LOCKED_WRIST_POSITIONS),
         "default_joint_positions": G1_DEFAULT_JOINT_POSITIONS,
         "tracking_body_names": list(G1_TRACKING_BODY_NAMES),
+        "non_root_tracking_body_names": list(G1_NON_ROOT_TRACKING_BODY_NAMES),
         "root_body_name": G1_ROOT_BODY_NAME,
         "foot_body_names": list(G1_FOOT_BODY_NAMES),
+        "local_five_point_body_names": list(G1_LOCAL_FIVE_POINT_BODY_NAMES),
         "physics_dt": PHYSICS_DT,
         "control_decimation": CONTROL_DECIMATION,
         "control_dt": CONTROL_DT,
@@ -237,6 +258,10 @@ assert len(G1_CONTROLLED_JOINT_NAMES) == G1_CONTROLLED_DOF
 assert len(G1_LOCKED_WRIST_JOINT_NAMES) == G1_LOCKED_WRIST_DOF
 assert len(set(G1_ALL_JOINT_NAMES)) == G1_PHYSICAL_DOF
 assert len(G1_TRACKING_BODY_NAMES) == G1_TRACKING_BODY_COUNT
+assert G1_TRACKING_BODY_NAMES[0] == G1_ROOT_BODY_NAME
+assert len(G1_NON_ROOT_TRACKING_BODY_NAMES) == G1_NON_ROOT_TRACKING_BODY_COUNT == 15
+assert len(G1_LOCAL_FIVE_POINT_BODY_NAMES) == 5
+assert set(G1_LOCAL_FIVE_POINT_BODY_NAMES).issubset(G1_TRACKING_BODY_NAMES)
 assert len(G1_TERMINATION_KEY_BODY_NAMES) == 5
 assert set(G1_TERMINATION_KEY_BODY_NAMES).issubset(G1_TRACKING_BODY_NAMES)
-assert ORACLE_OBSERVATION_DIM == 716
+assert ORACLE_OBSERVATION_DIM == 588
