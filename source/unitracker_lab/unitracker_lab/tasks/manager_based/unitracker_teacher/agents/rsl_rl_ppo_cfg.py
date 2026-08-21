@@ -12,7 +12,7 @@ class UnitrackerTeacherPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     save_interval = 5000
     experiment_name = "unitracker_teacher"
     run_name = "g1_stage1"
-    clip_actions = 1.0
+    clip_actions = None
     obs_groups = {"policy": ["teacher"], "critic": ["critic"]}
     policy = RslRlPpoActorCriticCfg(
         class_name="ActorCritic",
