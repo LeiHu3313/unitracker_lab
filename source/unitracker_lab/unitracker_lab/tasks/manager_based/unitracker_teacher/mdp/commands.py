@@ -15,8 +15,8 @@ from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_error_magnitude
 
-from .adaptive_sampling import AdaptiveEloSampler
 from ..contracts import (
+    G1_ALL_JOINT_NAMES,
     G1_CONTROLLED_JOINT_NAMES,
     G1_LOCKED_WRIST_JOINT_NAMES,
     G1_LOCKED_WRIST_POSITIONS,
@@ -25,6 +25,7 @@ from ..contracts import (
     reference_promotion_mask,
 )
 from ..motion_schema import load_and_validate_motion_dataset
+from .adaptive_sampling import AdaptiveEloSampler
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -42,16 +43,20 @@ class MotionCommand(CommandTerm):
         body_ids, body_names = self.robot.find_bodies(cfg.body_names, preserve_order=True)
         joint_ids, joint_names = self.robot.find_joints(cfg.controlled_joint_names, preserve_order=True)
         locked_ids, locked_names = self.robot.find_joints(cfg.locked_joint_names, preserve_order=True)
+        all_joint_ids, all_joint_names = self.robot.find_joints(G1_ALL_JOINT_NAMES, preserve_order=True)
         if tuple(body_names) != tuple(cfg.body_names):
             raise ValueError(f"Live G1 tracking bodies do not match contract: {body_names}")
         if tuple(joint_names) != tuple(cfg.controlled_joint_names):
             raise ValueError(f"Live G1 controlled joints do not match contract: {joint_names}")
         if tuple(locked_names) != tuple(cfg.locked_joint_names):
             raise ValueError(f"Live G1 locked wrist joints do not match contract: {locked_names}")
+        if tuple(all_joint_names) != G1_ALL_JOINT_NAMES:
+            raise ValueError(f"Live G1 physical joints do not match contract: {all_joint_names}")
 
         self._body_ids = torch.as_tensor(body_ids, dtype=torch.long, device=self.device)
         self._controlled_joint_ids = torch.as_tensor(joint_ids, dtype=torch.long, device=self.device)
         self._locked_joint_ids = torch.as_tensor(locked_ids, dtype=torch.long, device=self.device)
+        self._all_joint_ids = torch.as_tensor(all_joint_ids, dtype=torch.long, device=self.device)
         self._root_body_index = cfg.body_names.index(cfg.root_body_name)
         self._root_body_id = int(self._body_ids[self._root_body_index].item())
         self._locked_positions = torch.as_tensor(cfg.locked_joint_positions, dtype=torch.float32, device=self.device)
@@ -194,6 +199,22 @@ class MotionCommand(CommandTerm):
     @property
     def robot_joint_vel(self) -> torch.Tensor:
         return self.robot.data.joint_vel[:, self._controlled_joint_ids]
+
+    @property
+    def robot_all_joint_pos(self) -> torch.Tensor:
+        """Physical 29-DoF joint state in the checkpoint contract order."""
+
+        return self.robot.data.joint_pos[:, self._all_joint_ids]
+
+    @property
+    def robot_all_joint_vel(self) -> torch.Tensor:
+        """Physical 29-DoF joint velocity in the checkpoint contract order."""
+
+        return self.robot.data.joint_vel[:, self._all_joint_ids]
+
+    @property
+    def robot_all_default_joint_pos(self) -> torch.Tensor:
+        return self.robot.data.default_joint_pos[:, self._all_joint_ids]
 
     @property
     def locked_joint_ids(self) -> torch.Tensor:

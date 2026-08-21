@@ -14,5 +14,5 @@ def test_one_shot_termination_penalty_cancels_reward_manager_dt():
     step_dt = 0.02
     raw_failure_indicator = 1.0 / step_dt
     early_termination_weight = REGULARIZATION_REWARD_WEIGHTS["early_termination"]
-    assert early_termination_weight == -100.0
-    assert early_termination_weight * step_dt * raw_failure_indicator == -100.0
+    assert early_termination_weight == -50.0
+    assert early_termination_weight * step_dt * raw_failure_indicator == -50.0

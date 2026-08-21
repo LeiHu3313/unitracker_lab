@@ -1,4 +1,4 @@
-"""PPO baseline for the 588-D privileged G1 tracking teacher."""
+"""PPO baseline for the 605-D privileged G1 tracking teacher."""
 
 from isaaclab.utils import configclass
 

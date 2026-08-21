@@ -107,6 +107,7 @@ ACTION_DIM = G1_CONTROLLED_DOF
 # The insertion order is the tensor concatenation order in observations.py.
 ORACLE_OBSERVATION_BLOCK_DIMS = OrderedDict(
     (
+        # Current simulated robot state.
         ("current_root_height", 1),
         ("current_projected_gravity", 3),
         ("current_root_lin_vel_local", 3),
@@ -115,19 +116,26 @@ ORACLE_OBSERVATION_BLOCK_DIMS = OrderedDict(
         ("current_non_root_body_ori_rot6d_local", 90),
         ("current_non_root_body_lin_vel_local", 45),
         ("current_non_root_body_ang_vel_local", 45),
-        ("current_joint_pos", 23),
-        ("current_joint_vel", 23),
+        # This is the complete physical G1 state, including the six locked
+        # wrists.  Goals remain limited to the 23 joints the policy controls.
+        ("current_all_joint_pos_rel_default", 29),
+        ("current_all_joint_vel", 29),
+        # Current contact mode is simulator privileged information, not a
+        # reference target.  Ordering is G1_FOOT_BODY_NAMES.
+        ("current_foot_contact_mask", 2),
         ("previous_action", 23),
         ("next_root_height_error", 1),
         ("next_root_ori_error_rot6d", 6),
         ("next_root_lin_vel_error_local", 3),
         ("next_root_ang_vel_error_local", 3),
+        # Soft global torso anchor, expressed in the current pelvis frame.
+        ("next_torso_pos_error_local", 3),
         ("next_non_root_body_pos_error_local", 45),
         ("next_non_root_body_ori_error_rot6d", 90),
         ("next_non_root_body_lin_vel_error_local", 45),
         ("next_non_root_body_ang_vel_error_local", 45),
-        ("next_joint_pos_error", 23),
-        ("next_joint_vel_error", 23),
+        ("next_controlled_joint_pos_error", 23),
+        ("next_controlled_joint_vel_error", 23),
     )
 )
 ORACLE_OBSERVATION_DIM = sum(ORACLE_OBSERVATION_BLOCK_DIMS.values())
@@ -151,28 +159,30 @@ G1_URDF_SHA256 = "8df048597b758a4f868c1eef12ba995e331420a5aceef810a07c12e3b208ac
 
 TRACKING_REWARD_SPECS = OrderedDict(
     (
-        # Global pelvis/base anchor.
-        ("base_position", {"weight": 1.0, "sigma": 0.30}),
-        ("base_orientation", {"weight": 1.0, "sigma": 0.40}),
-        # Relative whole-body pose.
-        ("local_five_point_position", {"weight": 2.0, "sigma": 0.12}),
+        # A soft world-frame torso anchor avoids rewarding an arbitrary global
+        # translation more strongly than the physically feasible body layout.
+        ("torso_position", {"weight": 0.5, "sigma": 0.30}),
+        ("torso_orientation", {"weight": 0.5, "sigma": 0.40}),
+        ("torso_linear_velocity", {"weight": 0.5, "sigma": 1.00}),
+        ("torso_angular_velocity", {"weight": 0.5, "sigma": 2.50}),
+        # Relative whole-body pose is the primary tracking objective.
         ("body_position", {"weight": 1.0, "sigma": 0.30}),
         ("body_orientation", {"weight": 1.0, "sigma": 0.40}),
         # Joint and whole-body dynamical tracking.
-        ("joint_position", {"weight": 0.75, "sigma": 0.30}),
-        ("joint_velocity", {"weight": 0.5, "sigma": 1.0}),
-        ("body_linear_velocity", {"weight": 1.0, "sigma": 1.0}),
-        ("body_angular_velocity", {"weight": 1.0, "sigma": 3.14}),
-        # Extra global torso rotation signal for high-dynamic motions.
-        ("torso_orientation", {"weight": 1.0, "sigma": 0.40}),
+        ("joint_position", {"weight": 0.5, "sigma": 0.25}),
+        ("joint_velocity", {"weight": 0.5, "sigma": 2.50}),
+        ("body_linear_velocity", {"weight": 0.5, "sigma": 1.00}),
+        ("body_angular_velocity", {"weight": 0.5, "sigma": 2.50}),
     )
 )
 REGULARIZATION_REWARD_WEIGHTS = {
     "action_rate": -0.1,
-    "controlled_joint_torque": -1.0e-6,
+    "controlled_joint_velocity": -1.0e-4,
+    "controlled_joint_position_limits": -10.0,
     "foot_slip": -1.0,
-    "early_termination": -100.0,
+    "early_termination": -50.0,
 }
+FOOT_CONTACT_FORCE_THRESHOLD_N = 1.0
 TERMINATION_SPECS = {
     "projected_gravity": {"threshold": 0.8},
     "key_body_height": {"threshold": 0.4},
@@ -264,4 +274,4 @@ assert len(G1_LOCAL_FIVE_POINT_BODY_NAMES) == 5
 assert set(G1_LOCAL_FIVE_POINT_BODY_NAMES).issubset(G1_TRACKING_BODY_NAMES)
 assert len(G1_TERMINATION_KEY_BODY_NAMES) == 5
 assert set(G1_TERMINATION_KEY_BODY_NAMES).issubset(G1_TRACKING_BODY_NAMES)
-assert ORACLE_OBSERVATION_DIM == 588
+assert ORACLE_OBSERVATION_DIM == 605

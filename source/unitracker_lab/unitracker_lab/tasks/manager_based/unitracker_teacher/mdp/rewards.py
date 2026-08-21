@@ -27,16 +27,16 @@ def _exp_mean_square(error: torch.Tensor, sigma: float, dims: tuple[int, ...]) -
     return torch.exp(-torch.square(error).mean(dim=dims) / (sigma * sigma))
 
 
-def _body_ids(command: MotionCommand, body_names: list[str]) -> list[int]:
-    """Resolve named tracking bodies and reject a silently stale config."""
-
+def _body_id(command: MotionCommand, body_name: str) -> int:
     try:
-        return [command.cfg.body_names.index(name) for name in body_names]
+        return command.cfg.body_names.index(body_name)
     except ValueError as exc:
-        raise ValueError(f"Tracking body in {body_names!r} is not configured for the motion command.") from exc
+        raise ValueError(f"Tracking body {body_name!r} is not configured for the motion command.") from exc
 
 
-def _root_local_positions(body_pos_w: torch.Tensor, root_pos_w: torch.Tensor, root_quat_w: torch.Tensor) -> torch.Tensor:
+def _root_local_positions(
+    body_pos_w: torch.Tensor, root_pos_w: torch.Tensor, root_quat_w: torch.Tensor
+) -> torch.Tensor:
     """Express a batch of world positions in its corresponding root frame."""
 
     vectors_w = body_pos_w - root_pos_w[:, None, :]
@@ -67,19 +67,47 @@ def _root_relative_position_error(command: MotionCommand, body_ids: list[int]) -
     return reference_local - robot_local
 
 
-def base_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
-    """Track the pelvis/base global xyz position."""
+def global_body_position_tracking_exp(
+    env: ManagerBasedRLEnv, command_name: str, body_name: str, sigma: float
+) -> torch.Tensor:
+    """Track one body in world coordinates as a soft global anchor."""
 
     command = _command(env, command_name)
-    return _exp_mean_square(command.target_ref_body_pos_w[:, 0] - command.robot_root_pos_w, sigma, (1,))
+    body_id = _body_id(command, body_name)
+    return _exp_mean_square(
+        command.target_ref_body_pos_w[:, body_id] - command.robot_body_pos_w[:, body_id], sigma, (1,)
+    )
 
 
-def base_orientation_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
-    """Track the pelvis/base global orientation, including yaw."""
+def global_body_orientation_tracking_exp(
+    env: ManagerBasedRLEnv, command_name: str, body_name: str, sigma: float
+) -> torch.Tensor:
+    """Track one body orientation in world coordinates as a soft global anchor."""
 
     command = _command(env, command_name)
-    error = quat_error_magnitude(command.target_ref_body_quat_w[:, 0], command.robot_root_quat_w)
+    body_id = _body_id(command, body_name)
+    error = quat_error_magnitude(command.target_ref_body_quat_w[:, body_id], command.robot_body_quat_w[:, body_id])
     return torch.exp(-torch.square(error) / (sigma * sigma))
+
+
+def global_body_linear_velocity_tracking_exp(
+    env: ManagerBasedRLEnv, command_name: str, body_name: str, sigma: float
+) -> torch.Tensor:
+    command = _command(env, command_name)
+    body_id = _body_id(command, body_name)
+    return _exp_mean_square(
+        command.target_ref_body_lin_vel_w[:, body_id] - command.robot_body_lin_vel_w[:, body_id], sigma, (1,)
+    )
+
+
+def global_body_angular_velocity_tracking_exp(
+    env: ManagerBasedRLEnv, command_name: str, body_name: str, sigma: float
+) -> torch.Tensor:
+    command = _command(env, command_name)
+    body_id = _body_id(command, body_name)
+    return _exp_mean_square(
+        command.target_ref_body_ang_vel_w[:, body_id] - command.robot_body_ang_vel_w[:, body_id], sigma, (1,)
+    )
 
 
 def body_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
@@ -88,15 +116,6 @@ def body_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma:
     command = _command(env, command_name)
     body_ids = list(range(1, len(command.cfg.body_names)))
     return _exp_mean_square(_root_relative_position_error(command, body_ids), sigma, (1, 2))
-
-
-def local_five_point_position_tracking_exp(
-    env: ManagerBasedRLEnv, command_name: str, body_names: list[str], sigma: float
-) -> torch.Tensor:
-    """Emphasize root-local trunk, ankle, and wrist tracking (the paper's B5 term)."""
-
-    command = _command(env, command_name)
-    return _exp_mean_square(_root_relative_position_error(command, _body_ids(command, body_names)), sigma, (1, 2))
 
 
 def body_orientation_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
@@ -109,22 +128,6 @@ def body_orientation_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sig
     )
     error = quat_error_magnitude(reference_relative, robot_relative)
     return _exp_mean_square(error, sigma, (1,))
-
-
-def torso_orientation_tracking_exp(
-    env: ManagerBasedRLEnv, command_name: str, body_name: str, sigma: float
-) -> torch.Tensor:
-    """
-    global-anchor orientation term: exp(-theta^2 / sigma^2).
-    """
-
-    command = _command(env, command_name)
-    try:
-        body_id = command.cfg.body_names.index(body_name)
-    except ValueError as exc:
-        raise ValueError(f"Tracking body {body_name!r} is not configured for the motion command.") from exc
-    error = quat_error_magnitude(command.target_ref_body_quat_w[:, body_id], command.robot_body_quat_w[:, body_id])
-    return torch.exp(-torch.square(error) / (sigma * sigma))
 
 
 def joint_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
@@ -153,29 +156,28 @@ def action_rate_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.square(env.action_manager.action - env.action_manager.prev_action).sum(dim=1)
 
 
+def controlled_joint_velocity_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Penalize high controlled-joint speeds without constraining locked wrists."""
+
+    asset = env.scene[asset_cfg.name]
+    return torch.square(asset.data.joint_vel[:, asset_cfg.joint_ids]).sum(dim=1)
+
+
+def controlled_joint_position_limit_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
+    """Penalize excursions beyond the articulation's soft joint limits."""
+
+    asset = env.scene[asset_cfg.name]
+    joint_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+    limits = asset.data.soft_joint_pos_limits[:, asset_cfg.joint_ids]
+    below_limit = torch.clamp(limits[..., 0] - joint_pos, min=0.0)
+    above_limit = torch.clamp(joint_pos - limits[..., 1], min=0.0)
+    return (below_limit + above_limit).sum(dim=1)
+
+
 def action_rate_curriculum(
     env: ManagerBasedRLEnv, start_iter: int, end_iter: int, num_steps_per_iter: int
 ) -> torch.Tensor:
     return action_rate_penalty(env) * regularization_scale(env, start_iter, end_iter, num_steps_per_iter)
-
-
-def controlled_joint_torque_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    """Unscheduled controlled-joint torque penalty used by the active task."""
-
-    asset = env.scene[asset_cfg.name]
-    return torch.square(asset.data.applied_torque[:, asset_cfg.joint_ids]).sum(dim=1)
-
-
-def controlled_joint_torque_curriculum(
-    env: ManagerBasedRLEnv,
-    asset_cfg: SceneEntityCfg,
-    start_iter: int,
-    end_iter: int,
-    num_steps_per_iter: int,
-) -> torch.Tensor:
-    return controlled_joint_torque_penalty(env, asset_cfg) * regularization_scale(
-        env, start_iter, end_iter, num_steps_per_iter
-    )
 
 
 def foot_slip_penalty(

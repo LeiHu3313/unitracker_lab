@@ -81,7 +81,7 @@ commit: cd65172032893724b445448818c34165846d847d
 - 明确、可测试的 23 个控制关节与 6 个固定 wrist 关节。
 - 16-body tracking map。
 - 单 NPZ、递归目录或 `.txt/.lst` manifest 的严格加载、重排、多 motion RSI 与 `t -> t+1` 时序。
-- 588-D Teacher Actor observation 和同构 Critic observation。
+- 605-D Teacher Actor observation 和同构 Critic observation。
 - 23-D position target action + implicit PD。
 - 论文范式对应的 tracking reward、固定正则化权重和 early termination。
 - asset-only DR。
@@ -134,7 +134,7 @@ source/unitracker_lab/unitracker_lab/
     ├── mdp/
     │   ├── __init__.py
     │   ├── commands.py               # G1 motion schema、RSI、时序
-    │   ├── observations.py           # 588-D oracle
+    │   ├── observations.py           # 605-D oracle
     │   ├── rewards.py
     │   ├── terminations.py
     │   └── curriculum.py
@@ -289,8 +289,8 @@ SIM_DT = 0.005
 DECIMATION = 4
 CONTROL_DT = 0.020
 CONTROL_HZ = 50
-TEACHER_OBS_DIM = 588
-CRITIC_OBS_DIM = 588
+TEACHER_OBS_DIM = 605
+CRITIC_OBS_DIM = 605
 ```
 
 生产配置目标为 8192 environments；所有功能验证必须允许通过 CLI 覆盖为 1、16、64 或 4096。
@@ -472,14 +472,15 @@ canonical frame 使用当前 robot `pelvis`：
 - body position：减 pelvis position 后旋转到 pelvis frame；
 - linear/angular velocity：只旋转到 pelvis frame；
 - body orientation：`R_root^T R_body`；
-- reference position/velocity error：先 world-space 相减，再旋转到 pelvis frame；
+- reference body pose goal：robot/reference 分别变换到各自 pelvis frame 后再求误差；
+- reference velocity error：先 world-space 相减，再旋转到当前 pelvis frame；
 - quaternion 内部使用 WXYZ，送入网络前转换为 rotation 6D。
 
 所有 observation term 都不加噪声、不加 history。网络 normalization 是否开启由 runner cfg 明确控制。
 
 ### 8.2 Actor 精确布局
 
-采用一个单独的 pelvis root、15 个非 root tracking bodies、23 controlled joints、rotation 6D。所有 body
+采用一个单独的 pelvis root、15 个非 root tracking bodies、29 physical joints、rotation 6D。所有 body
 block 都排除 pelvis，避免将恒为零的 root-local position 和恒为 identity 的 root-local rotation
 送入网络。全局 root x/y 和绝对 yaw 不进入 observation ABI。
 
@@ -490,64 +491,64 @@ block 都排除 pelvis，避免将恒为零的 root-local position 和恒为 ide
 | 3 | current root linear/angular velocity in root frame | `3 + 3` |
 | 4 | current non-root body position/orientation in root frame | `15 x 3 + 15 x 6 = 135` |
 | 5 | current non-root body linear/angular velocity in root frame | `15 x 3 + 15 x 3 = 90` |
-| 6 | current controlled joint position/velocity and previous action | `23 + 23 + 23 = 69` |
-| 7 | target root height, orientation, linear/angular velocity error | `1 + 6 + 3 + 3 = 13` |
-| 8 | target non-root body position/orientation error | `15 x 3 + 15 x 6 = 135` |
-| 9 | target non-root body linear/angular velocity error | `15 x 3 + 15 x 3 = 90` |
-| 10 | target controlled joint position/velocity error | `23 + 23 = 46` |
-| | **总计** | **588** |
+| 6 | current all-joint position relative to default / velocity | `29 + 29 = 58` |
+| 7 | current left/right foot binary contact and previous action | `2 + 23 = 25` |
+| 8 | target root height, orientation, linear/angular velocity error | `1 + 6 + 3 + 3 = 13` |
+| 9 | target torso global-position error in current root frame | `3` |
+| 10 | target non-root body position/orientation error | `15 x 3 + 15 x 6 = 135` |
+| 11 | target non-root body linear/angular velocity error | `15 x 3 + 15 x 3 = 90` |
+| 12 | target controlled joint position/velocity error | `23 + 23 = 46` |
+| | **总计** | **605** |
 
 其中：
 
 ```text
-current oracle state = 304
-next-frame goal      = 284
-teacher actor input  = 588
+current oracle state = 318
+next-frame goal      = 287
+teacher actor input  = 605
 ```
 
 不加入 5-frame raw joint look-ahead command；否则它就不是这里定义的 next-frame UniTracker oracle。
 
 ### 8.3 Critic
 
-第一版 Critic 使用独立的 `critic` observation group，但布局与 Teacher Actor 完全相同，也是 588 维：
+第一版 Critic 使用独立的 `critic` observation group，但布局与 Teacher Actor 完全相同，也是 605 维：
 
 ```python
 obs_groups = {"policy": ["teacher"], "critic": ["critic"]}
 ```
 
-保持两个 group 是为了未来可以做 asymmetric critic ablation；首条基线不额外给 Critic 时间索引、terrain 或 contact flags，避免让 PPO value contract 与 Teacher 语义分叉。
+保持两个 group 是为了未来可以做 asymmetric critic ablation；首条基线不额外给 Critic 时间索引或 terrain，双脚当前 contact mask 则作为 Teacher 的完整仿真状态输入。
 
 ### 8.4 observation contract tests
 
-测试不能只断言总维度 588，还要对每个 block 做 slice test：
+测试不能只断言总维度 605，还要对每个 block 做 slice test：
 
 - identity pose 时 rot6d 的确切编码；
 - global yaw/translation 同时施加给 robot/reference 后 local observation 不变；
 - 单独改变一个 body angular velocity，只改变对应 3 维；
 - 单独改变 `ref[k+1]`，只改变 goal blocks；
-- wrist state 改变不进入 joint blocks，但 hand body state仍按 16-body contract 反映；
+- wrist state 必须进入 29-DoF current joint blocks，但 goal 仍仅包含 23 个 controlled joints；
+- 双脚 contact mask 的顺序与 `G1_FOOT_BODY_NAMES` 一致；
 - block 顺序与导出 metadata 一致。
 
 ## 9. Reward、curriculum 与 termination
 
 ### 9.1 tracking reward
 
-目标权重按给出的 UniTracker Table I：
+目标权重以“相对构型优先、torso 世界系软锚定”为准：
 
 | term | weight | target |
 | --- | ---: | --- |
-| global base position | `+1.0` | pelvis/base xyz in world frame |
-| global base orientation | `+1.0` | pelvis/base rotation, including yaw |
-| local five-point position | `+2.0` | torso, both ankle-roll links, both rubber hands; root-local |
+| global torso position | `+0.5` | torso xyz in world frame |
+| global torso orientation | `+0.5` | torso rotation, including yaw |
+| global torso linear/angular velocity | `+0.5 / +0.5` | torso world-frame velocity |
 | relative body position | `+1.0` | 15 non-root bodies in their own pelvis frame |
 | relative body rotation | `+1.0` | 15 non-root body orientations relative to pelvis |
-| controlled joint position | `+0.75` | 23 controlled joints |
+| controlled joint position | `+0.5` | 23 controlled joints |
 | controlled joint velocity | `+0.5` | 23 controlled joints |
-| body linear velocity | `+1.0` | 16-body target velocity |
-| body angular velocity | `+1.0` | 16-body target angular velocity |
-| global torso orientation | `+1.0` | torso global rotation |
-
-local five-point position 替换旧的双脚全局 position 项。五点固定为 torso、左右 ankle-roll 与左右 rubber hand；pelvis/root 在 root-local frame 中恒为零，不能放进该项。
+| body linear velocity | `+0.5` | 16-body target velocity |
+| body angular velocity | `+0.5` | 16-body target angular velocity |
 
 reward kernel 使用可配置 exponential tracking 形式：
 
@@ -559,16 +560,16 @@ exp(-mean_squared_error / sigma^2)
 
 | term | provisional sigma |
 | --- | ---: |
-| global base position | 0.30 m |
-| global base orientation | 0.40 rad |
-| relative body position | 0.30 m |
-| local five-point position | 0.12 m |
-| relative body orientation | 0.40 rad |
-| joint position | 0.30 rad |
-| joint velocity | 1.00 rad/s |
-| body linear velocity | 1.00 m/s |
-| body angular velocity | 3.14 rad/s |
+| global torso position | 0.30 m |
 | global torso orientation | 0.40 rad |
+| global torso linear velocity | 1.00 m/s |
+| global torso angular velocity | 2.50 rad/s |
+| relative body position | 0.30 m |
+| relative body orientation | 0.40 rad |
+| joint position | 0.25 rad |
+| joint velocity | 2.50 rad/s |
+| body linear velocity | 1.00 m/s |
+| body angular velocity | 2.50 rad/s |
 
 Table I 给出了 weights，但未在当前需求中给出所有 kernel temperatures；因此 sigma 必须作为 resolved config 和实验 manifest 的显式字段。正式大训练前先用 one-motion overfit 冻结，不能把 provisional 数值当成论文已确认事实。
 
@@ -576,20 +577,21 @@ Table I 给出了 weights，但未在当前需求中给出所有 kernel temperat
 
 | term | full weight | 计算范围 |
 | --- | ---: | --- |
-| action rate | `-0.5` | 23-D normalized action difference |
-| torque | `-1e-6` | 23 controlled joint applied torque |
+| action rate | `-0.1` | 23-D normalized action difference |
+| controlled joint velocity L2 | `-1e-4` | 23 controlled joints |
+| controlled joint position limits | `-10.0` | 23 controlled joints' soft limits |
 | foot slippage | `-1.0` | contact feet planar velocity |
-| early termination | `-100` | fall/tracking failure only |
+| early termination | `-50` | fall/tracking failure only |
 
-不额外加入 joint-limit、undesired-contact 或 wrist reward；若需要只能作为后续 ablation。
+不在 Teacher v1 中加入 torque、undesired-contact、feet-air-time、survival 或 self-collision reward；它们必须作为后续单独 ablation。
 
-Isaac Lab `RewardManager` 会自动把每个 reward 乘以 `step_dt=0.02`。early termination 是一次性 penalty，必须避免被缩小。实现方式：termination indicator term 返回 `terminated / step_dt`，配置 weight 为 `-100`；测试直接断言 failure step 的 penalty 等于 `-100`，timeout/motion-end 为 `0`。
+Isaac Lab `RewardManager` 会自动把每个 reward 乘以 `step_dt=0.02`。early termination 是一次性 penalty，必须避免被缩小。实现方式：termination indicator term 返回 `terminated / step_dt`，配置 weight 为 `-50`；测试直接断言 failure step 的 penalty 等于 `-50`，timeout/motion-end 为 `0`。
 
 ### 9.3 reward curriculum
 
 所有 tracking、regularization 与 early-termination 项从第 0 iteration 起就是完整权重；当前任务关闭 reward curriculum。
 
-early-termination 条件和其 `-100` reward penalty 均从训练开始启用。若要重新做 curriculum ablation，可改用保留的 `*_curriculum` MDP term 和显式的 start/end iteration 参数。
+early-termination 条件和其 `-50` reward penalty 均从训练开始启用。若要重新做 curriculum ablation，可改用保留的 `*_curriculum` MDP term 和显式的 start/end iteration 参数。
 
 ### 9.4 early termination
 
@@ -670,7 +672,7 @@ RslRlVecEnvWrapper
 | desired KL | 0.01 |
 | max grad norm | 1.0 |
 
-生产默认 `num_envs=8192`，但 runner 配置与 task 语义分开：环境数、network width 和总 iterations 都是算力/收敛参数，不是 observation/action contract。若 588-D oracle 在 `[512,256,128]` 下欠拟合，第二个受控实验再比较较大的 `[2048,1024,512]` 网络。
+生产默认 `num_envs=8192`，但 runner 配置与 task 语义分开：环境数、network width 和总 iterations 都是算力/收敛参数，不是 observation/action contract。若 605-D oracle 在 `[512,256,128]` 下欠拟合，第二个受控实验再比较较大的 `[2048,1024,512]` 网络。
 
 首版使用标准本地 `OnPolicyRunner`，不复制 BeyondMimic 的 W&B 专用 runner。训练必须确认 import 到当前 submodule 中的 RSL-RL，而不是系统安装版本。
 
@@ -772,7 +774,7 @@ checkpoint 本身沿用 RSL-RL 的 model/optimizer/iteration 结构。Stage-2 �
 - last frame 被奖励后才 reset；
 - 无 hard-coded motion body indexes。
 
-### M2：588-D oracle
+### M2：605-D oracle
 
 实现 observation blocks、actor/critic group mapping和导出 layout metadata。
 
@@ -781,7 +783,7 @@ checkpoint 本身沿用 RSL-RL 的 model/optimizer/iteration 结构。Stage-2 �
 - 每个 block 的 shape、offset、数值测试通过；
 - global translation/rotation invariance test 通过；
 - 无 history、无 corruption、无 raw 5-frame command；
-- runner 打印 Actor=588、Critic=588、Action=23。
+- runner 打印 Actor=605、Critic=605、Action=23。
 
 ### M3：reward、termination、DR
 
@@ -790,7 +792,7 @@ checkpoint 本身沿用 RSL-RL 的 model/optimizer/iteration 结构。Stage-2 �
 - robot state 等于 target 时，各 tracking reward 接近 1；
 - 单一关节/body perturbation 只影响预期 reward；
 - active task 的 regularization/penalty 从 iteration 0 起就是完整权重；
-- early failure 一次性 penalty 精确为 `-100`，timeout 为 0；
+- early failure 一次性 penalty 精确为 `-50`，timeout 为 0；
 - gravity/link-distance threshold 边界测试通过；
 - DR whitelist 通过。
 
@@ -826,7 +828,7 @@ failure-aware sampling、网络增大和 reward sigma 调整必须分别做实�
 
 - 23/6/29 joint set 和顺序。
 - 16-body list 唯一性。
-- observation slice offsets 总和为 588。
+- observation slice offsets 总和为 605。
 - NPZ fields、names、shape、finite、quaternion norm、fps。
 - 29-joint motion 到 23-joint controlled reorder。
 - locked wrist reference tolerance。
@@ -869,7 +871,7 @@ failure-aware sampling、网络增大和 reward sigma 调整必须分别做实�
 2. `G1 asset package + 23/6/16 contracts`。
 3. `G1 articulation + PD + 23-D action + wrist lock`。
 4. `strict G1 motion schema + RSI + temporal alignment`。
-5. `588-D oracle observation`。
+5. `605-D oracle observation`。
 6. `tracking rewards + early termination`。
 7. `fixed regularization + asset-only DR`。
 8. `Gym registration + PPO cfg + train/play scripts`。

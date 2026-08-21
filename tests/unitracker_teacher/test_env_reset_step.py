@@ -33,9 +33,9 @@ def test_one_env_reset_step_and_policy_construction():
         try:
             env = RslRlVecEnvWrapper(env, clip_actions=1.0)
             observations = env.get_observations()
-            assert observations["teacher"].shape == (1, 588)
+            assert observations["teacher"].shape == (1, 605)
             observations, _, _, _ = env.step(torch.zeros((1, 23), device=env.unwrapped.device))
-            assert observations["teacher"].shape == (1, 588)
+            assert observations["teacher"].shape == (1, 605)
             command = env.unwrapped.command_manager.get_term("motion")
             wrist_targets = command.robot.data.joint_pos_target[:, command.locked_joint_ids]
             assert torch.allclose(wrist_targets, torch.zeros_like(wrist_targets))
