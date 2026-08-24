@@ -163,18 +163,18 @@ TRACKING_REWARD_SPECS = OrderedDict(
     (
         # A soft world-frame torso anchor avoids rewarding an arbitrary global
         # translation more strongly than the physically feasible body layout.
-        ("torso_position", {"weight": 0.5, "sigma": 0.30}),
-        ("torso_orientation", {"weight": 0.5, "sigma": 0.40}),
-        ("torso_linear_velocity", {"weight": 0.5, "sigma": 1.00}),
-        ("torso_angular_velocity", {"weight": 0.5, "sigma": 2.50}),
+        ("torso_position", {"weight": 2.0, "sigma": 0.30}),
+        ("torso_orientation", {"weight": 2.0, "sigma": 0.40}),
+        ("torso_linear_velocity", {"weight": 1.0, "sigma": 1.00}),
+        ("torso_angular_velocity", {"weight": 2.0, "sigma": 2.50}),
         # Relative whole-body pose is the primary tracking objective.
-        ("body_position", {"weight": 1.0, "sigma": 0.30}),
+        ("body_position", {"weight": 2.0, "sigma": 0.30}),
         ("body_orientation", {"weight": 1.0, "sigma": 0.40}),
         # Joint and whole-body dynamical tracking.
         ("joint_position", {"weight": 0.5, "sigma": 0.25}),
         ("joint_velocity", {"weight": 0.5, "sigma": 2.50}),
-        ("body_linear_velocity", {"weight": 0.5, "sigma": 1.00}),
-        ("body_angular_velocity", {"weight": 0.5, "sigma": 2.50}),
+        ("body_linear_velocity", {"weight": 1.0, "sigma": 1.00}),
+        ("body_angular_velocity", {"weight": 1.0, "sigma": 2.50}),
     )
 )
 REGULARIZATION_REWARD_WEIGHTS = {
@@ -192,14 +192,13 @@ TERMINATION_SPECS = {
 
 REWARD_CURRICULUM = None
 ASSET_DR_RANGES = {
-    "static_friction": (0.3, 1.6),
-    "dynamic_friction": (0.3, 1.2),
-    "restitution": (0.0, 0.5),
-    "torso_pelvis_com_x": (-0.03, 0.03),
-    "torso_pelvis_com_yz": (-0.05, 0.05),
-    "link_mass_scale": (0.8, 1.2),
+    "static_friction": (0.8, 1.2),
+    "dynamic_friction": (0.8, 1.2),
+    "restitution": (0.0, 0.15),
+    "torso_pelvis_com_x": (-0.01, 0.01),
+    "torso_pelvis_com_yz": (-0.01, 0.01),
+    "link_mass_scale": (0.95, 1.05),
 }
-
 
 def oracle_observation_slices() -> dict[str, tuple[int, int]]:
     """Return the stable half-open offsets for every oracle observation block."""

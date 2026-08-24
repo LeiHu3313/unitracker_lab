@@ -601,13 +601,13 @@ early-termination 条件和其 `-50` reward penalty 均从训练开始启用。�
 
 ```text
 fall:
-  max(abs(projected_gravity_root.x), abs(projected_gravity_root.y)) > 0.8
+  ||projected_gravity_reference - projected_gravity_robot||_2 > 0.8
 
 tracking_failure:
-  mean_i ||target_body_pos[i] - robot_body_pos[i]||_2 > 0.5 m
+  abs(target_pelvis_z - robot_pelvis_z) > 0.4 m
 ```
 
-第二项对 16 tracking bodies 取 mean。position distance 的范数对坐标旋转不敏感，但 target 与 robot 必须使用同一个 env origin 和同一个 `k+1` 时刻。
+第二项只约束 pelvis 的世界高度，不约束全局 x/y 漂移；target 与 robot 使用同一个 env origin 和同一个 `k+1` 时刻。
 
 另外保留：
 
@@ -622,12 +622,12 @@ tracking_failure:
 
 | property | baseline range |
 | --- | --- |
-| static friction | `[0.3, 1.6]` |
-| dynamic friction | `[0.3, 1.2]` |
-| restitution | `[0.0, 0.5]` |
-| torso/pelvis CoM x | `[-0.025, 0.025] m` |
-| torso/pelvis CoM y/z | `[-0.05, 0.05] m` |
-| non-fixed link mass scale | `[0.8, 1.2]` |
+| static friction | `[0.8, 1.2]` |
+| dynamic friction | `[0.8, 1.2]` |
+| restitution | `[0.0, 0.15]` |
+| torso/pelvis CoM x | `[-0.01, 0.01] m` |
+| torso/pelvis CoM y/z | `[-0.01, 0.01] m` |
+| non-fixed link mass scale | `[0.95, 1.05]` |
 
 明确禁止出现在主配置中的 event/actuator 选项：
 
