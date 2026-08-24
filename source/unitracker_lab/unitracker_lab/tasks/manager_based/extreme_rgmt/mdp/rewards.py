@@ -151,7 +151,7 @@ def body_angular_velocity_tracking_exp(env: ManagerBasedRLEnv, command_name: str
 
 
 def action_rate_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """Unscheduled action-rate penalty used by the active teacher task."""
+    """Unscheduled action-rate penalty used by the active Extreme-RGMT task."""
 
     return torch.square(env.action_manager.action - env.action_manager.prev_action).sum(dim=1)
 
@@ -186,7 +186,7 @@ def foot_slip_penalty(
     asset_cfg: SceneEntityCfg,
     threshold: float,
 ) -> torch.Tensor:
-    """Unscheduled foot-slip penalty used by the active teacher task."""
+    """Unscheduled foot-slip penalty used by the active Extreme-RGMT task."""
 
     sensor = env.scene[sensor_cfg.name]
     asset = env.scene[asset_cfg.name]

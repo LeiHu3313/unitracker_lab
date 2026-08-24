@@ -1,4 +1,4 @@
-"""Simulator-independent adaptive sampling for multi-clip teacher motions."""
+"""Simulator-independent adaptive sampling for multi-clip Extreme-RGMT motions."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""MDP terms for the G1-only UniTracker Stage-1 teacher."""
+"""MDP terms for Extreme-RGMT."""
 
 from isaaclab.envs.mdp import (
     JointPositionActionCfg,
@@ -10,7 +10,7 @@ from isaaclab.envs.mdp import (
 
 from .commands import MotionCommand, MotionCommandCfg
 from .curriculum import linear_curriculum_scale, regularization_scale
-from .observations import teacher_oracle_observation
+from .observations import policy_observation
 from .rewards import (
     action_rate_curriculum,
     action_rate_penalty,

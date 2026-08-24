@@ -1,4 +1,4 @@
-"""G1-only UniTracker Stage-1 privileged teacher environment."""
+"""Standalone G1 environment for the Extreme-RGMT reproduction."""
 
 from __future__ import annotations
 
@@ -36,7 +36,7 @@ from .contracts import (
 
 
 @configclass
-class TeacherSceneCfg(InteractiveSceneCfg):
+class ExtremeRGMTSceneCfg(InteractiveSceneCfg):
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="plane",
@@ -68,12 +68,12 @@ class TeacherSceneCfg(InteractiveSceneCfg):
 
 
 @configclass
-class TeacherCommandsCfg:
+class ExtremeRGMTCommandsCfg:
     motion = mdp.MotionCommandCfg(motion_file=MISSING)
 
 
 @configclass
-class TeacherActionsCfg:
+class ExtremeRGMTActionsCfg:
     joint_pos = mdp.JointPositionActionCfg(
         asset_name="robot",
         joint_names=list(G1_CONTROLLED_JOINT_NAMES),
@@ -84,10 +84,10 @@ class TeacherActionsCfg:
 
 
 @configclass
-class TeacherObservationsCfg:
+class ExtremeRGMTObservationsCfg:
     @configclass
-    class TeacherCfg(ObsGroup):
-        oracle = ObsTerm(func=mdp.teacher_oracle_observation, params={"command_name": "motion"})
+    class PolicyCfg(ObsGroup):
+        state = ObsTerm(func=mdp.policy_observation, params={"command_name": "motion"})
 
         def __post_init__(self) -> None:
             self.enable_corruption = False
@@ -95,18 +95,18 @@ class TeacherObservationsCfg:
 
     @configclass
     class CriticCfg(ObsGroup):
-        oracle = ObsTerm(func=mdp.teacher_oracle_observation, params={"command_name": "motion"})
+        state = ObsTerm(func=mdp.policy_observation, params={"command_name": "motion"})
 
         def __post_init__(self) -> None:
             self.enable_corruption = False
             self.concatenate_terms = True
 
-    teacher: TeacherCfg = TeacherCfg()
+    policy: PolicyCfg = PolicyCfg()
     critic: CriticCfg = CriticCfg()
 
 
 @configclass
-class TeacherEventsCfg:
+class ExtremeRGMTEventsCfg:
     physics_material = EventTerm(
         func=mdp.randomize_rigid_body_material,
         mode="startup",
@@ -145,7 +145,7 @@ class TeacherEventsCfg:
 
 
 @configclass
-class TeacherRewardsCfg:
+class ExtremeRGMTRewardsCfg:
     torso_position = RewTerm(
         func=mdp.global_body_position_tracking_exp,
         weight=TRACKING_REWARD_SPECS["torso_position"]["weight"],
@@ -246,7 +246,7 @@ class TeacherRewardsCfg:
 
 
 @configclass
-class TeacherTerminationsCfg:
+class ExtremeRGMTTerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     motion_end = DoneTerm(func=mdp.motion_end, time_out=True, params={"command_name": "motion"})
     projected_gravity = DoneTerm(
@@ -264,16 +264,16 @@ class TeacherTerminationsCfg:
 
 
 @configclass
-class UnitrackerTeacherEnvCfg(ManagerBasedRLEnvCfg):
-    """Production G1 Stage-1 teacher configuration."""
+class ExtremeRGMTEnvCfg(ManagerBasedRLEnvCfg):
+    """Role-aware Extreme-RGMT environment configured by the launcher."""
 
-    scene: TeacherSceneCfg = TeacherSceneCfg(num_envs=8192, env_spacing=2.5)
-    observations: TeacherObservationsCfg = TeacherObservationsCfg()
-    actions: TeacherActionsCfg = TeacherActionsCfg()
-    commands: TeacherCommandsCfg = TeacherCommandsCfg()
-    events: TeacherEventsCfg = TeacherEventsCfg()
-    rewards: TeacherRewardsCfg = TeacherRewardsCfg()
-    terminations: TeacherTerminationsCfg = TeacherTerminationsCfg()
+    scene: ExtremeRGMTSceneCfg = ExtremeRGMTSceneCfg(num_envs=8192, env_spacing=2.5)
+    observations: ExtremeRGMTObservationsCfg = ExtremeRGMTObservationsCfg()
+    actions: ExtremeRGMTActionsCfg = ExtremeRGMTActionsCfg()
+    commands: ExtremeRGMTCommandsCfg = ExtremeRGMTCommandsCfg()
+    events: ExtremeRGMTEventsCfg = ExtremeRGMTEventsCfg()
+    rewards: ExtremeRGMTRewardsCfg = ExtremeRGMTRewardsCfg()
+    terminations: ExtremeRGMTTerminationsCfg = ExtremeRGMTTerminationsCfg()
 
     def __post_init__(self) -> None:
         self.decimation = CONTROL_DECIMATION
@@ -285,27 +285,4 @@ class UnitrackerTeacherEnvCfg(ManagerBasedRLEnvCfg):
         self.viewer.eye = (1.8, 1.8, 1.3)
         self.viewer.origin_type = "asset_root"
         self.viewer.asset_name = "robot"
-
-
-@configclass
-class UnitrackerTeacherPlayEnvCfg(UnitrackerTeacherEnvCfg):
-    """Deterministic clip replay with all Stage-1 randomization disabled."""
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        self.scene.num_envs = 1
-        self.episode_length_s = 1.0e9
-        self.commands.motion.sampling_mode = "eval"
-        self.commands.motion.debug_vis = True
-        self.events.physics_material = None
-        self.events.torso_pelvis_com = None
-        self.events.link_mass = None
-
-
-@configclass
-class UnitrackerExtremeRGMTEnvCfg(UnitrackerTeacherEnvCfg):
-    """Stage-II role-aware environment; manifests are supplied by the launcher."""
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
         self.commands.motion.acquisition_fraction = 0.8

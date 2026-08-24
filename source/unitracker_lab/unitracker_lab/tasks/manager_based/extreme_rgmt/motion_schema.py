@@ -172,7 +172,7 @@ def _sha256_file(path: Path) -> str:
 
 
 def load_and_validate_motion(path: str | Path) -> ValidatedMotion:
-    """Validate, reorder and return the exact 23-joint/16-body teacher input."""
+    """Validate, reorder and return the exact 23-joint/16-body reproduction input."""
 
     resolved = Path(path).expanduser().resolve()
     if not resolved.is_file() or resolved.suffix.lower() != ".npz":

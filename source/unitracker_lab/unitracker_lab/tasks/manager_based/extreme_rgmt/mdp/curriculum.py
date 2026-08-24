@@ -1,4 +1,4 @@
-"""Reward curriculum shared by G1 teacher regularization terms."""
+"""Reward curriculum shared by Extreme-RGMT regularization terms."""
 
 from __future__ import annotations
 

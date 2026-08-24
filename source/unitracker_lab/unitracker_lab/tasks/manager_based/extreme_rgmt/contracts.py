@@ -1,4 +1,4 @@
-"""Hard contracts shared by every G1 Stage-1 teacher component.
+"""Hard contracts shared by the standalone Extreme-RGMT task.
 
 Changing an ordered list in this module changes the checkpoint ABI.  Keep the
 motion loader, action term, observations, rewards and export code tied to these
@@ -102,11 +102,11 @@ CONTROL_DECIMATION = 4
 CONTROL_DT = PHYSICS_DT * CONTROL_DECIMATION
 CONTROL_FREQUENCY_HZ = 1.0 / CONTROL_DT
 ACTION_DIM = G1_CONTROLLED_DOF
-# The teacher receives the current reference frame plus four future frames.
+# The interim policy proxy receives the current reference plus four future frames.
 FUTURE_REFERENCE_FRAMES = 5
 
 # The insertion order is the tensor concatenation order in observations.py.
-ORACLE_OBSERVATION_BLOCK_DIMS = OrderedDict(
+POLICY_OBSERVATION_BLOCK_DIMS = OrderedDict(
     (
         # Current simulated robot state.
         ("current_root_height", 1),
@@ -140,8 +140,7 @@ ORACLE_OBSERVATION_BLOCK_DIMS = OrderedDict(
         ("future_controlled_joint_pos_vel_command", FUTURE_REFERENCE_FRAMES * 2 * G1_CONTROLLED_DOF),
     )
 )
-ORACLE_OBSERVATION_DIM = sum(ORACLE_OBSERVATION_BLOCK_DIMS.values())
-CRITIC_OBSERVATION_DIM = ORACLE_OBSERVATION_DIM
+POLICY_OBSERVATION_DIM = sum(POLICY_OBSERVATION_BLOCK_DIMS.values())
 
 MOTION_REQUIRED_FIELDS = (
     "fps",
@@ -200,12 +199,12 @@ ASSET_DR_RANGES = {
     "link_mass_scale": (0.95, 1.05),
 }
 
-def oracle_observation_slices() -> dict[str, tuple[int, int]]:
-    """Return the stable half-open offsets for every oracle observation block."""
+def policy_observation_slices() -> dict[str, tuple[int, int]]:
+    """Return stable half-open offsets for every policy-observation block."""
 
     result: dict[str, tuple[int, int]] = {}
     start = 0
-    for name, width in ORACLE_OBSERVATION_BLOCK_DIMS.items():
+    for name, width in POLICY_OBSERVATION_BLOCK_DIMS.items():
         result[name] = (start, start + width)
         start += width
     return result
@@ -244,11 +243,11 @@ def contract_dict() -> dict[str, object]:
         "control_dt": CONTROL_DT,
         "action_dim": ACTION_DIM,
         "future_reference_frames": FUTURE_REFERENCE_FRAMES,
-        "actor_observation_dim": ORACLE_OBSERVATION_DIM,
-        "critic_observation_dim": CRITIC_OBSERVATION_DIM,
+        "actor_observation_dim": POLICY_OBSERVATION_DIM,
+        "critic_observation_dim": POLICY_OBSERVATION_DIM,
         "observation_blocks": {
             name: {"start": bounds[0], "end": bounds[1], "dim": bounds[1] - bounds[0]}
-            for name, bounds in oracle_observation_slices().items()
+            for name, bounds in policy_observation_slices().items()
         },
         "motion_schema": {
             "required_fields": list(MOTION_REQUIRED_FIELDS),
@@ -272,4 +271,4 @@ assert G1_TRACKING_BODY_NAMES[0] == G1_ROOT_BODY_NAME
 assert len(G1_NON_ROOT_TRACKING_BODY_NAMES) == G1_NON_ROOT_TRACKING_BODY_COUNT == 15
 assert len(G1_LOCAL_FIVE_POINT_BODY_NAMES) == 5
 assert set(G1_LOCAL_FIVE_POINT_BODY_NAMES).issubset(G1_TRACKING_BODY_NAMES)
-assert ORACLE_OBSERVATION_DIM == 789
+assert POLICY_OBSERVATION_DIM == 789

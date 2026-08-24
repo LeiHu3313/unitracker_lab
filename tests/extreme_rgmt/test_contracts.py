@@ -8,7 +8,7 @@ from contracts import (
     G1_LOCKED_WRIST_JOINT_NAMES,
     G1_NON_ROOT_TRACKING_BODY_NAMES,
     G1_TRACKING_BODY_NAMES,
-    ORACLE_OBSERVATION_DIM,
+    POLICY_OBSERVATION_DIM,
     REWARD_CURRICULUM,
     TERMINATION_SPECS,
     TRACKING_REWARD_SPECS,
@@ -31,7 +31,7 @@ def test_g1_hard_contract_counts_and_uniqueness():
         "left_rubber_hand",
         "right_rubber_hand",
     )
-    assert ORACLE_OBSERVATION_DIM == 789
+    assert POLICY_OBSERVATION_DIM == 789
     assert FUTURE_REFERENCE_FRAMES == 5
     assert contract_dict()["future_reference_frames"] == 5
 
@@ -44,11 +44,11 @@ def test_reward_keeps_torso_as_a_soft_global_anchor():
     assert "base_position" not in TRACKING_REWARD_SPECS
 
 
-def test_reward_curriculum_is_disabled_for_the_active_teacher_task():
+def test_reward_curriculum_is_disabled_for_the_active_extreme_rgmt_task():
     assert REWARD_CURRICULUM is None
 
 
-def test_relative_tracking_reward_matches_the_selected_teacher_baseline():
+def test_relative_tracking_reward_matches_the_selected_extreme_rgmt_baseline():
     assert TRACKING_REWARD_SPECS["body_position"] == {"weight": 2.0, "sigma": 0.30}
     assert TRACKING_REWARD_SPECS["body_orientation"] == {"weight": 1.0, "sigma": 0.40}
     assert TRACKING_REWARD_SPECS["body_linear_velocity"] == {"weight": 1.0, "sigma": 1.00}

@@ -135,7 +135,7 @@ class MotionCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        """Five-frame joint command used by the teacher oracle and diagnostics."""
+        """Five-frame joint command used by the policy proxy and diagnostics."""
 
         return self.future_ref_joint_command
 
@@ -455,7 +455,7 @@ class MotionCommand(CommandTerm):
             self.current_body_visualizers = [
                 VisualizationMarkers(
                     self.cfg.current_body_visualizer_cfg.replace(
-                        prim_path=f"/Visuals/G1Teacher/current_bodies/{body_name}"
+                        prim_path=f"/Visuals/ExtremeRGMT/current_bodies/{body_name}"
                     )
                 )
                 for body_name in self.cfg.body_names
@@ -463,7 +463,7 @@ class MotionCommand(CommandTerm):
             self.target_body_visualizers = [
                 VisualizationMarkers(
                     self.cfg.target_body_visualizer_cfg.replace(
-                        prim_path=f"/Visuals/G1Teacher/target_bodies/{body_name}"
+                        prim_path=f"/Visuals/ExtremeRGMT/target_bodies/{body_name}"
                     )
                 )
                 for body_name in self.cfg.body_names
@@ -506,7 +506,7 @@ class MotionCommandCfg(CommandTermCfg):
     resampling_time_range: tuple[float, float] = (1.0e9, 1.0e9)
     debug_vis: bool = False
     current_body_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
-        prim_path="/Visuals/G1Teacher/current_bodies/body",
+        prim_path="/Visuals/ExtremeRGMT/current_bodies/body",
         markers={
             "body": sim_utils.SphereCfg(
                 radius=0.025,
@@ -515,7 +515,7 @@ class MotionCommandCfg(CommandTermCfg):
         },
     )
     target_body_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(
-        prim_path="/Visuals/G1Teacher/target_bodies/body",
+        prim_path="/Visuals/ExtremeRGMT/target_bodies/body",
         markers={
             "body": sim_utils.SphereCfg(
                 radius=0.035,

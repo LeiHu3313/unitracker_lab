@@ -1,17 +1,17 @@
-from contracts import ORACLE_OBSERVATION_BLOCK_DIMS, ORACLE_OBSERVATION_DIM, oracle_observation_slices
+from contracts import POLICY_OBSERVATION_BLOCK_DIMS, POLICY_OBSERVATION_DIM, policy_observation_slices
 
 
-def test_oracle_layout_is_contiguous_and_789_dimensional():
-    slices = oracle_observation_slices()
+def test_policy_layout_is_contiguous_and_789_dimensional():
+    slices = policy_observation_slices()
     cursor = 0
-    for name, width in ORACLE_OBSERVATION_BLOCK_DIMS.items():
+    for name, width in POLICY_OBSERVATION_BLOCK_DIMS.items():
         assert slices[name] == (cursor, cursor + width)
         cursor += width
-    assert cursor == ORACLE_OBSERVATION_DIM == 789
+    assert cursor == POLICY_OBSERVATION_DIM == 789
 
 
-def test_oracle_state_goal_boundary():
-    slices = oracle_observation_slices()
+def test_policy_state_goal_boundary():
+    slices = policy_observation_slices()
     assert slices["current_all_joint_pos_rel_default"] == (235, 264)
     assert slices["current_foot_contact_mask"] == (293, 295)
     assert slices["previous_action"] == (295, 318)

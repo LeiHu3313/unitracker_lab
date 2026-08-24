@@ -5,7 +5,7 @@ def test_main_task_contains_only_asset_property_randomization():
     root = Path(__file__).resolve().parents[2]
     env_source = (
         root
-        / "source/unitracker_lab/unitracker_lab/tasks/manager_based/unitracker_teacher/unitracker_teacher_env_cfg.py"
+        / "source/unitracker_lab/unitracker_lab/tasks/manager_based/extreme_rgmt/extreme_rgmt_env_cfg.py"
     ).read_text(encoding="utf-8")
     asset_source = (root / "source/unitracker_lab/unitracker_lab/assets/g1/g1.py").read_text(encoding="utf-8")
     for forbidden in (

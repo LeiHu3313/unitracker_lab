@@ -8,7 +8,7 @@ import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg
 
-from unitracker_lab.tasks.manager_based.unitracker_teacher.contracts import (
+from unitracker_lab.tasks.manager_based.extreme_rgmt.contracts import (
     G1_CONTROLLED_JOINT_NAMES,
     G1_DEFAULT_JOINT_POSITIONS,
     G1_LOCKED_WRIST_JOINT_NAMES,

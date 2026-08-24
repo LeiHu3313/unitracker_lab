@@ -1,4 +1,4 @@
-"""789-D privileged oracle observation for the G1 Stage-1 teacher."""
+"""Interim policy/critic state used while the paper encoder is implemented."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import torch
 
 from isaaclab.utils import math as math_utils
 
-from ..contracts import FOOT_CONTACT_FORCE_THRESHOLD_N, G1_FOOT_BODY_NAMES, ORACLE_OBSERVATION_DIM
+from ..contracts import FOOT_CONTACT_FORCE_THRESHOLD_N, G1_FOOT_BODY_NAMES, POLICY_OBSERVATION_DIM
 from .commands import MotionCommand
 
 if TYPE_CHECKING:
@@ -55,7 +55,7 @@ def _foot_contact_mask(env: ManagerBasedRLEnv) -> torch.Tensor:
     return (contact_force > FOOT_CONTACT_FORCE_THRESHOLD_N).to(dtype=torch.float32)
 
 
-def teacher_oracle_observation(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
+def policy_observation(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
     """Return current state, a ``t -> t+1`` body goal, and five reference joint frames.
 
     The pelvis is represented once as a root block.  All remaining tracking
@@ -145,8 +145,8 @@ def teacher_oracle_observation(env: ManagerBasedRLEnv, command_name: str) -> tor
         command.future_ref_joint_command,
     )
     observation = torch.cat(blocks, dim=-1)
-    if observation.shape[-1] != ORACLE_OBSERVATION_DIM:
+    if observation.shape[-1] != POLICY_OBSERVATION_DIM:
         raise RuntimeError(
-            f"G1 oracle observation ABI violation: got {observation.shape[-1]}, expected {ORACLE_OBSERVATION_DIM}."
+            f"G1 policy observation ABI violation: got {observation.shape[-1]}, expected {POLICY_OBSERVATION_DIM}."
         )
     return observation
