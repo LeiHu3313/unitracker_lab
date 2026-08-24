@@ -34,17 +34,6 @@ def projected_gravity_tracking_failure(env: ManagerBasedRLEnv, command_name: str
     return torch.linalg.vector_norm(robot_gravity_root - reference_gravity_root, dim=-1) > threshold
 
 
-def key_body_height_tracking_failure(
-    env: ManagerBasedRLEnv, command_name: str, body_names: list[str], threshold: float
-) -> torch.Tensor:
-    """Terminate when a pelvis, ankle, or hand vertical error exceeds the threshold."""
-
-    command = _command(env, command_name)
-    body_ids = [command.cfg.body_names.index(name) for name in body_names]
-    height_error = torch.abs(command.target_ref_body_pos_w[:, body_ids, 2] - command.robot_body_pos_w[:, body_ids, 2])
-    return torch.amax(height_error, dim=-1) > threshold
-
-
 def pelvis_position_tracking_failure(
     env: ManagerBasedRLEnv, command_name: str, body_name: str, threshold: float
 ) -> torch.Tensor:

@@ -96,7 +96,6 @@ G1_HAND_BODY_NAMES = ("left_rubber_hand", "right_rubber_hand")
 # The paper's local five-point term: trunk, both ankle endpoints, both wrists.
 # Keep this order stable because it is recorded in each run's contract snapshot.
 G1_LOCAL_FIVE_POINT_BODY_NAMES = ("torso_link", *G1_FOOT_BODY_NAMES, *G1_HAND_BODY_NAMES)
-G1_TERMINATION_KEY_BODY_NAMES = (G1_ROOT_BODY_NAME, *G1_FOOT_BODY_NAMES, *G1_HAND_BODY_NAMES)
 
 PHYSICS_DT = 0.005
 CONTROL_DECIMATION = 4
@@ -188,7 +187,6 @@ REGULARIZATION_REWARD_WEIGHTS = {
 FOOT_CONTACT_FORCE_THRESHOLD_N = 1.0
 TERMINATION_SPECS = {
     "projected_gravity": {"threshold": 0.8},
-    "key_body_height": {"threshold": 0.4},
     "pelvis_position": {"threshold": 0.4},
 }
 
@@ -262,7 +260,6 @@ def contract_dict() -> dict[str, object]:
         "tracking_reward_specs": TRACKING_REWARD_SPECS,
         "regularization_reward_weights": REGULARIZATION_REWARD_WEIGHTS,
         "reward_curriculum": REWARD_CURRICULUM,
-        "termination_key_body_names": list(G1_TERMINATION_KEY_BODY_NAMES),
         "termination_specs": TERMINATION_SPECS,
         "asset_dr_ranges": ASSET_DR_RANGES,
     }
@@ -276,6 +273,4 @@ assert G1_TRACKING_BODY_NAMES[0] == G1_ROOT_BODY_NAME
 assert len(G1_NON_ROOT_TRACKING_BODY_NAMES) == G1_NON_ROOT_TRACKING_BODY_COUNT == 15
 assert len(G1_LOCAL_FIVE_POINT_BODY_NAMES) == 5
 assert set(G1_LOCAL_FIVE_POINT_BODY_NAMES).issubset(G1_TRACKING_BODY_NAMES)
-assert len(G1_TERMINATION_KEY_BODY_NAMES) == 5
-assert set(G1_TERMINATION_KEY_BODY_NAMES).issubset(G1_TRACKING_BODY_NAMES)
 assert ORACLE_OBSERVATION_DIM == 789

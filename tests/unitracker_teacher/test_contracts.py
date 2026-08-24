@@ -6,7 +6,6 @@ from contracts import (
     G1_LOCAL_FIVE_POINT_BODY_NAMES,
     G1_LOCKED_WRIST_JOINT_NAMES,
     G1_NON_ROOT_TRACKING_BODY_NAMES,
-    G1_TERMINATION_KEY_BODY_NAMES,
     G1_TRACKING_BODY_NAMES,
     ORACLE_OBSERVATION_DIM,
     REWARD_CURRICULUM,
@@ -26,13 +25,6 @@ def test_g1_hard_contract_counts_and_uniqueness():
     assert len(G1_NON_ROOT_TRACKING_BODY_NAMES) == 15
     assert G1_LOCAL_FIVE_POINT_BODY_NAMES == (
         "torso_link",
-        "left_ankle_roll_link",
-        "right_ankle_roll_link",
-        "left_rubber_hand",
-        "right_rubber_hand",
-    )
-    assert G1_TERMINATION_KEY_BODY_NAMES == (
-        "pelvis",
         "left_ankle_roll_link",
         "right_ankle_roll_link",
         "left_rubber_hand",
@@ -67,6 +59,5 @@ def test_relative_tracking_reward_matches_the_selected_teacher_baseline():
 def test_reference_relative_termination_thresholds_are_configured():
     assert TERMINATION_SPECS == {
         "projected_gravity": {"threshold": 0.8},
-        "key_body_height": {"threshold": 0.4},
         "pelvis_position": {"threshold": 0.4},
     }

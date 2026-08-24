@@ -28,7 +28,6 @@ from .contracts import (
     G1_CONTROLLED_JOINT_NAMES,
     G1_FOOT_BODY_NAMES,
     G1_ROOT_BODY_NAME,
-    G1_TERMINATION_KEY_BODY_NAMES,
     PHYSICS_DT,
     REGULARIZATION_REWARD_WEIGHTS,
     TERMINATION_SPECS,
@@ -253,14 +252,6 @@ class TeacherTerminationsCfg:
     projected_gravity = DoneTerm(
         func=mdp.projected_gravity_tracking_failure,
         params={"command_name": "motion", **TERMINATION_SPECS["projected_gravity"]},
-    )
-    key_body_height = DoneTerm(
-        func=mdp.key_body_height_tracking_failure,
-        params={
-            "command_name": "motion",
-            "body_names": list(G1_TERMINATION_KEY_BODY_NAMES),
-            **TERMINATION_SPECS["key_body_height"],
-        },
     )
     pelvis_position = DoneTerm(
         func=mdp.pelvis_position_tracking_failure,

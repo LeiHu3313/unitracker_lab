@@ -32,7 +32,6 @@ from .rewards import (
     joint_velocity_tracking_exp,
 )
 from .terminations import (
-    key_body_height_tracking_failure,
     motion_end,
     pelvis_position_tracking_failure,
     projected_gravity_tracking_failure,
