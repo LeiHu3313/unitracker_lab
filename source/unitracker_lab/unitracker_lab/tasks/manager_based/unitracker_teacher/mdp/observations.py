@@ -1,4 +1,4 @@
-"""605-D privileged oracle observation for the G1 Stage-1 teacher."""
+"""789-D privileged oracle observation for the G1 Stage-1 teacher."""
 
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ def _foot_contact_mask(env: ManagerBasedRLEnv) -> torch.Tensor:
 
 
 def teacher_oracle_observation(env: ManagerBasedRLEnv, command_name: str) -> torch.Tensor:
-    """Return root/body state plus an explicit, translation-invariant ``t -> t+1`` goal.
+    """Return current state, a ``t -> t+1`` body goal, and five reference joint frames.
 
     The pelvis is represented once as a root block.  All remaining tracking
     bodies are root-local, so global root x/y translation and absolute yaw do
@@ -88,7 +88,8 @@ def teacher_oracle_observation(env: ManagerBasedRLEnv, command_name: str) -> tor
     root_ang_vel_local = math_utils.quat_apply_inverse(root_quat_w, command.robot_body_ang_vel_w[:, 0])
 
     current_body_pos_local = _rotate_inverse(root_quat_w, robot_body_pos_w - root_pos_w[:, None, :])
-    current_body_ori_local = _rot6d(_relative_quat(root_quat_w, robot_body_quat_w))
+    current_body_ori_local_quat = _relative_quat(root_quat_w, robot_body_quat_w)
+    current_body_ori_local = _rot6d(current_body_ori_local_quat)
     current_body_lin_vel_local = _rotate_inverse(root_quat_w, robot_body_lin_vel_w)
     current_body_ang_vel_local = _rotate_inverse(root_quat_w, robot_body_ang_vel_w)
 
@@ -112,9 +113,9 @@ def teacher_oracle_observation(env: ManagerBasedRLEnv, command_name: str) -> tor
     target_body_pos_local = _rotate_inverse(
         target_root_quat_w, target_body_pos_w - target_root_pos_w[:, None, :]
     )
-    target_body_ori_local = _relative_quat(target_root_quat_w, target_body_quat_w)
+    target_body_ori_local_quat = _relative_quat(target_root_quat_w, target_body_quat_w)
     target_body_pos_error_local = target_body_pos_local - current_body_pos_local
-    target_body_ori_error = _rot6d(_quat_error(current_body_ori_local, target_body_ori_local))
+    target_body_ori_error = _rot6d(_quat_error(current_body_ori_local_quat, target_body_ori_local_quat))
     target_body_lin_vel_error_local = _rotate_inverse(root_quat_w, target_body_lin_vel_w - robot_body_lin_vel_w)
     target_body_ang_vel_error_local = _rotate_inverse(root_quat_w, target_body_ang_vel_w - robot_body_ang_vel_w)
 
@@ -141,8 +142,7 @@ def teacher_oracle_observation(env: ManagerBasedRLEnv, command_name: str) -> tor
         target_body_ori_error.flatten(1),
         target_body_lin_vel_error_local.flatten(1),
         target_body_ang_vel_error_local.flatten(1),
-        command.target_ref_joint_pos - command.robot_joint_pos,
-        command.target_ref_joint_vel - command.robot_joint_vel,
+        command.future_ref_joint_command,
     )
     observation = torch.cat(blocks, dim=-1)
     if observation.shape[-1] != ORACLE_OBSERVATION_DIM:

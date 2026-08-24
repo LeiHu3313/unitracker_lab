@@ -16,6 +16,7 @@ from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_error_magnitude
 
 from ..contracts import (
+    FUTURE_REFERENCE_FRAMES,
     G1_ALL_JOINT_NAMES,
     G1_CONTROLLED_JOINT_NAMES,
     G1_LOCKED_WRIST_JOINT_NAMES,
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
 
 
 class MotionCommand(CommandTerm):
-    """Own 50-Hz clips and expose an unambiguous ``phase k -> target k+1`` contract."""
+    """Own 50-Hz clips with a ``k -> k+1`` body goal and a five-frame joint command."""
 
     cfg: MotionCommandCfg
 
@@ -110,9 +111,9 @@ class MotionCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        """Small raw command for diagnostics; the policy consumes the explicit oracle observation."""
+        """Five-frame joint command used by the teacher oracle and diagnostics."""
 
-        return torch.cat((self.target_ref_joint_pos, self.target_ref_joint_vel), dim=-1)
+        return self.future_ref_joint_command
 
     @property
     def active_clip_end(self) -> torch.Tensor:
@@ -151,6 +152,23 @@ class MotionCommand(CommandTerm):
     @property
     def target_ref_joint_vel(self) -> torch.Tensor:
         return self._joint_vel[self.target_index]
+
+    @property
+    def future_ref_joint_indices(self) -> torch.Tensor:
+        """Return reference indices ``t, ..., t+4``, clamped to each clip end."""
+
+        offsets = torch.arange(FUTURE_REFERENCE_FRAMES, device=self.device, dtype=torch.long)
+        indices = self.phase_index[:, None] + offsets[None, :]
+        return torch.minimum(indices, (self.active_clip_end - 1)[:, None])
+
+    @property
+    def future_ref_joint_command(self) -> torch.Tensor:
+        """Reference ``[q_t, ..., q_t+4, 0.05*dq_t, ..., 0.05*dq_t+4]`` command."""
+
+        indices = self.future_ref_joint_indices
+        joint_pos = self._joint_pos[indices].flatten(1)
+        joint_vel = (0.05 * self._joint_vel[indices]).flatten(1)
+        return torch.cat((joint_pos, joint_vel), dim=-1)
 
     @property
     def target_ref_body_pos_w(self) -> torch.Tensor:
@@ -394,7 +412,7 @@ class MotionCommandCfg(CommandTermCfg):
     locked_joint_positions: list[float] = list(G1_LOCKED_WRIST_POSITIONS)
     sampling_mode: str = "adaptive"
     adaptive_window_s: float = 1.0
-    adaptive_uniform_ratio: float = 0.5
+    adaptive_uniform_ratio: float = 0.1
     adaptive_elo_initial_rating: float = 100.0
     adaptive_elo_rating_k: float = 32.0
     adaptive_elo_sampling_temperature: float = 0.3

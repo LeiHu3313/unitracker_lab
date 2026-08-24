@@ -48,11 +48,11 @@ def key_body_height_tracking_failure(
 def pelvis_position_tracking_failure(
     env: ManagerBasedRLEnv, command_name: str, body_name: str, threshold: float
 ) -> torch.Tensor:
-    """Terminate when the pelvis position drifts too far from its reference."""
+    """Terminate only when pelvis height drifts too far from its reference."""
 
     command = _command(env, command_name)
     body_id = command.cfg.body_names.index(body_name)
-    position_error = torch.linalg.vector_norm(
-        command.target_ref_body_pos_w[:, body_id] - command.robot_body_pos_w[:, body_id], dim=-1
+    height_error = torch.abs(
+        command.target_ref_body_pos_w[:, body_id, 2] - command.robot_body_pos_w[:, body_id, 2]
     )
-    return position_error > threshold
+    return height_error > threshold

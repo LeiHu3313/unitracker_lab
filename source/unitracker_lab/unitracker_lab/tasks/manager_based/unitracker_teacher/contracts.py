@@ -103,6 +103,8 @@ CONTROL_DECIMATION = 4
 CONTROL_DT = PHYSICS_DT * CONTROL_DECIMATION
 CONTROL_FREQUENCY_HZ = 1.0 / CONTROL_DT
 ACTION_DIM = G1_CONTROLLED_DOF
+# The teacher receives the current reference frame plus four future frames.
+FUTURE_REFERENCE_FRAMES = 5
 
 # The insertion order is the tensor concatenation order in observations.py.
 ORACLE_OBSERVATION_BLOCK_DIMS = OrderedDict(
@@ -134,8 +136,9 @@ ORACLE_OBSERVATION_BLOCK_DIMS = OrderedDict(
         ("next_non_root_body_ori_error_rot6d", 90),
         ("next_non_root_body_lin_vel_error_local", 45),
         ("next_non_root_body_ang_vel_error_local", 45),
-        ("next_controlled_joint_pos_error", 23),
-        ("next_controlled_joint_vel_error", 23),
+        # Reference joint command at t, ..., t+4.  Each frame contains the
+        # 23 controlled q targets and velocity targets scaled by 0.05.
+        ("future_controlled_joint_pos_vel_command", FUTURE_REFERENCE_FRAMES * 2 * G1_CONTROLLED_DOF),
     )
 )
 ORACLE_OBSERVATION_DIM = sum(ORACLE_OBSERVATION_BLOCK_DIMS.values())
@@ -243,6 +246,7 @@ def contract_dict() -> dict[str, object]:
         "control_decimation": CONTROL_DECIMATION,
         "control_dt": CONTROL_DT,
         "action_dim": ACTION_DIM,
+        "future_reference_frames": FUTURE_REFERENCE_FRAMES,
         "actor_observation_dim": ORACLE_OBSERVATION_DIM,
         "critic_observation_dim": CRITIC_OBSERVATION_DIM,
         "observation_blocks": {
@@ -274,4 +278,4 @@ assert len(G1_LOCAL_FIVE_POINT_BODY_NAMES) == 5
 assert set(G1_LOCAL_FIVE_POINT_BODY_NAMES).issubset(G1_TRACKING_BODY_NAMES)
 assert len(G1_TERMINATION_KEY_BODY_NAMES) == 5
 assert set(G1_TERMINATION_KEY_BODY_NAMES).issubset(G1_TRACKING_BODY_NAMES)
-assert ORACLE_OBSERVATION_DIM == 605
+assert ORACLE_OBSERVATION_DIM == 789

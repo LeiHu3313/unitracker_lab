@@ -1,5 +1,6 @@
 from contracts import (
     ACTION_DIM,
+    FUTURE_REFERENCE_FRAMES,
     G1_ALL_JOINT_NAMES,
     G1_CONTROLLED_JOINT_NAMES,
     G1_LOCAL_FIVE_POINT_BODY_NAMES,
@@ -11,6 +12,7 @@ from contracts import (
     REWARD_CURRICULUM,
     TERMINATION_SPECS,
     TRACKING_REWARD_SPECS,
+    contract_dict,
 )
 
 
@@ -36,7 +38,9 @@ def test_g1_hard_contract_counts_and_uniqueness():
         "left_rubber_hand",
         "right_rubber_hand",
     )
-    assert ORACLE_OBSERVATION_DIM == 605
+    assert ORACLE_OBSERVATION_DIM == 789
+    assert FUTURE_REFERENCE_FRAMES == 5
+    assert contract_dict()["future_reference_frames"] == 5
 
 
 def test_reward_keeps_torso_as_a_soft_global_anchor():
