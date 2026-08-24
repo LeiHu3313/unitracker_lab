@@ -4,6 +4,10 @@
 
 Isaac Lab project for  UniTracker environments and learning algorithms.
 
+## Research Notes
+
+- [Extreme-RGMT paper study and reproduction plan](docs/extreme_rgmt_reproduction_plan.md)
+
 ## Environment
 
 - Linux

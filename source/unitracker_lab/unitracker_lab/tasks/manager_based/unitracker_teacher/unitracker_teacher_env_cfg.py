@@ -300,3 +300,12 @@ class UnitrackerTeacherPlayEnvCfg(UnitrackerTeacherEnvCfg):
         self.events.physics_material = None
         self.events.torso_pelvis_com = None
         self.events.link_mass = None
+
+
+@configclass
+class UnitrackerExtremeRGMTEnvCfg(UnitrackerTeacherEnvCfg):
+    """Stage-II role-aware environment; manifests are supplied by the launcher."""
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        self.commands.motion.acquisition_fraction = 0.8

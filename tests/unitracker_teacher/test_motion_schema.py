@@ -3,7 +3,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 from contracts import G1_ALL_JOINT_NAMES, G1_CONTROLLED_JOINT_NAMES, G1_LOCKED_WRIST_JOINT_NAMES, G1_TRACKING_BODY_NAMES
-from motion_schema import load_and_validate_motion, load_and_validate_motion_dataset, resolve_motion_files
+from motion_schema import (
+    load_and_validate_motion,
+    load_and_validate_motion_dataset,
+    merge_validated_motion_datasets,
+    resolve_motion_files,
+)
 
 
 def _write_motion(
@@ -135,3 +140,25 @@ def test_dataset_reports_the_invalid_clip_path(tmp_path):
 
     with pytest.raises(ValueError, match=r"Invalid G1 motion clip .*bad\.npz"):
         load_and_validate_motion_dataset(tmp_path)
+
+
+def test_merge_preserves_role_order_and_rejects_overlap(tmp_path):
+    mastered_dir = tmp_path / "mastered"
+    challenging_dir = tmp_path / "challenging"
+    mastered_dir.mkdir()
+    challenging_dir.mkdir()
+    _write_motion(mastered_dir / "walk.npz", frames=3, value=1.0)
+    _write_motion(challenging_dir / "flip.npz", frames=4, value=2.0)
+
+    mastered = load_and_validate_motion_dataset(mastered_dir)
+    challenging = load_and_validate_motion_dataset(challenging_dir)
+    merged = merge_validated_motion_datasets(mastered, challenging, source_label="test")
+
+    assert tuple(path.name for path in merged.paths) == ("walk.npz", "flip.npz")
+    np.testing.assert_array_equal(merged.clip_starts, [0, 3])
+    np.testing.assert_array_equal(merged.clip_lengths, [3, 4])
+    np.testing.assert_allclose(merged.joint_pos[:3], 1.0)
+    np.testing.assert_allclose(merged.joint_pos[3:], 2.0)
+
+    with pytest.raises(ValueError, match="overlap"):
+        merge_validated_motion_datasets(mastered, mastered)

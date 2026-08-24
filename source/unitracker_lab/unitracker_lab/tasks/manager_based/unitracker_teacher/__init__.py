@@ -2,8 +2,12 @@
 
 import gymnasium as gym
 
-from .agents import UnitrackerTeacherPPORunnerCfg
-from .unitracker_teacher_env_cfg import UnitrackerTeacherEnvCfg, UnitrackerTeacherPlayEnvCfg
+from .agents import UnitrackerExtremeRGMTPPORunnerCfg, UnitrackerTeacherPPORunnerCfg
+from .unitracker_teacher_env_cfg import (
+    UnitrackerExtremeRGMTEnvCfg,
+    UnitrackerTeacherEnvCfg,
+    UnitrackerTeacherPlayEnvCfg,
+)
 
 gym.register(
     id="Unitracker_Teacher-v0",
@@ -25,4 +29,20 @@ gym.register(
     },
 )
 
-__all__ = ["UnitrackerTeacherEnvCfg", "UnitrackerTeacherPlayEnvCfg", "UnitrackerTeacherPPORunnerCfg"]
+gym.register(
+    id="Unitracker_ExtremeRGMT-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": UnitrackerExtremeRGMTEnvCfg,
+        "rsl_rl_cfg_entry_point": UnitrackerExtremeRGMTPPORunnerCfg,
+    },
+)
+
+__all__ = [
+    "UnitrackerTeacherEnvCfg",
+    "UnitrackerTeacherPlayEnvCfg",
+    "UnitrackerTeacherPPORunnerCfg",
+    "UnitrackerExtremeRGMTEnvCfg",
+    "UnitrackerExtremeRGMTPPORunnerCfg",
+]

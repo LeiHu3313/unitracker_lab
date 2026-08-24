@@ -25,7 +25,7 @@ from ..contracts import (
     G1_TRACKING_BODY_NAMES,
     reference_promotion_mask,
 )
-from ..motion_schema import load_and_validate_motion_dataset
+from ..motion_schema import load_and_validate_motion_dataset, merge_validated_motion_datasets
 from .adaptive_sampling import AdaptiveEloSampler
 
 if TYPE_CHECKING:
@@ -62,7 +62,21 @@ class MotionCommand(CommandTerm):
         self._root_body_id = int(self._body_ids[self._root_body_index].item())
         self._locked_positions = torch.as_tensor(cfg.locked_joint_positions, dtype=torch.float32, device=self.device)
 
-        arrays = load_and_validate_motion_dataset(cfg.motion_file)
+        self._pace_enabled = cfg.mastered_motion_file is not None or cfg.challenging_motion_file is not None
+        if self._pace_enabled:
+            if cfg.mastered_motion_file is None or cfg.challenging_motion_file is None:
+                raise ValueError("PACE requires both mastered_motion_file and challenging_motion_file.")
+            if not 0.0 < cfg.acquisition_fraction < 1.0:
+                raise ValueError("PACE acquisition_fraction must be strictly between zero and one.")
+            if self.num_envs < 2:
+                raise ValueError("PACE requires at least two environments for acquisition and consolidation roles.")
+            mastered = load_and_validate_motion_dataset(cfg.mastered_motion_file)
+            challenging = load_and_validate_motion_dataset(cfg.challenging_motion_file)
+            self._mastered_motion_count = mastered.num_motions
+            arrays = merge_validated_motion_datasets(mastered, challenging, source_label="extreme-rgmt")
+        else:
+            arrays = load_and_validate_motion_dataset(cfg.motion_file)
+            self._mastered_motion_count = 0
         self.motion_path = arrays.path
         self.motion_sha256 = arrays.sha256
         self.motion_fps = arrays.fps
@@ -72,9 +86,15 @@ class MotionCommand(CommandTerm):
         self._clip_starts = torch.as_tensor(arrays.clip_starts, dtype=torch.long, device=self.device)
         self._clip_lengths = torch.as_tensor(arrays.clip_lengths, dtype=torch.long, device=self.device)
         self._clip_ends = self._clip_starts + self._clip_lengths
+        adaptive_clip_starts = (
+            self._clip_starts[self._mastered_motion_count :] if self._pace_enabled else self._clip_starts
+        )
+        adaptive_clip_lengths = (
+            self._clip_lengths[self._mastered_motion_count :] if self._pace_enabled else self._clip_lengths
+        )
         self._adaptive_sampler = AdaptiveEloSampler(
-            self._clip_starts,
-            self._clip_lengths,
+            adaptive_clip_starts,
+            adaptive_clip_lengths,
             fps=self.motion_fps,
             window_s=cfg.adaptive_window_s,
             uniform_ratio=cfg.adaptive_uniform_ratio,
@@ -91,7 +111,11 @@ class MotionCommand(CommandTerm):
         self._body_ang_vel_w = torch.as_tensor(arrays.body_ang_vel_w, device=self.device)
 
         self.motion_id = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
-        self.window_id = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
+        self.window_id = torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device)
+        acquisition_count = round(self.num_envs * cfg.acquisition_fraction) if self._pace_enabled else self.num_envs
+        if self._pace_enabled:
+            acquisition_count = min(max(acquisition_count, 1), self.num_envs - 1)
+        self.acquisition_mask = torch.arange(self.num_envs, device=self.device) < acquisition_count
         self.phase_index = torch.zeros(self.num_envs, dtype=torch.long, device=self.device)
         self.target_index = torch.ones(self.num_envs, dtype=torch.long, device=self.device)
         self.just_reset = torch.zeros(self.num_envs, dtype=torch.bool, device=self.device)
@@ -266,6 +290,9 @@ class MotionCommand(CommandTerm):
         env_ids = torch.as_tensor(env_ids, dtype=torch.long, device=self.device)
         if env_ids.numel() == 0:
             return
+        if self._pace_enabled:
+            self._resample_pace_command(env_ids)
+            return
         if self.cfg.sampling_mode == "eval":
             motion_id = torch.remainder(env_ids, self.num_motions)
             phase = self._clip_starts[motion_id]
@@ -289,6 +316,38 @@ class MotionCommand(CommandTerm):
         self.window_id[env_ids] = window_id
         self.phase_index[env_ids] = phase
         self.target_index[env_ids] = phase + 1
+        self.just_reset[env_ids] = True
+        self._write_reference_state_to_sim(env_ids)
+
+    def _sample_uniform_clips(self, env_ids: torch.Tensor, start: int, stop: int) -> tuple[torch.Tensor, torch.Tensor]:
+        """Sample clips and valid phases uniformly from ``[start, stop)``."""
+
+        motion_id = torch.randint(start, stop, (env_ids.numel(),), device=self.device)
+        valid_phase_counts = self._clip_lengths[motion_id] - 1
+        phase_offset = torch.floor(torch.rand(env_ids.numel(), device=self.device) * valid_phase_counts).long()
+        return motion_id, self._clip_starts[motion_id] + phase_offset
+
+    def _resample_pace_command(self, env_ids: torch.Tensor) -> None:
+        """Sample challenging/adaptive and mastered/uniform clips by fixed env role."""
+
+        self._record_adaptive_outcomes(env_ids)
+        acquisition_envs = env_ids[self.acquisition_mask[env_ids]]
+        consolidation_envs = env_ids[~self.acquisition_mask[env_ids]]
+
+        if acquisition_envs.numel() > 0:
+            window_id, local_motion_id, phase = self._adaptive_sampler.sample(acquisition_envs.numel())
+            self.motion_id[acquisition_envs] = local_motion_id + self._mastered_motion_count
+            self.window_id[acquisition_envs] = window_id
+            self.phase_index[acquisition_envs] = phase
+            self.target_index[acquisition_envs] = phase + 1
+
+        if consolidation_envs.numel() > 0:
+            motion_id, phase = self._sample_uniform_clips(consolidation_envs, 0, self._mastered_motion_count)
+            self.motion_id[consolidation_envs] = motion_id
+            self.window_id[consolidation_envs] = -1
+            self.phase_index[consolidation_envs] = phase
+            self.target_index[consolidation_envs] = phase + 1
+
         self.just_reset[env_ids] = True
         self._write_reference_state_to_sim(env_ids)
 
@@ -333,6 +392,10 @@ class MotionCommand(CommandTerm):
         if not bool(completed.any()):
             return
         completed_env_ids = env_ids[completed]
+        if self._pace_enabled:
+            completed_env_ids = completed_env_ids[self.acquisition_mask[completed_env_ids]]
+            if completed_env_ids.numel() == 0:
+                return
         # ``terminated`` excludes time-outs.  Surviving the configured horizon
         # or reaching a clip boundary is success; only tracking failures raise
         # the difficulty of the sampled RSI window.
@@ -342,7 +405,7 @@ class MotionCommand(CommandTerm):
     def apply_motion_cache_swap_if_pending_barrier(self) -> bool:
         """Synchronize adaptive ELO feedback once per PPO rollout."""
 
-        if self.cfg.sampling_mode != "adaptive":
+        if not self._pace_enabled and self.cfg.sampling_mode != "adaptive":
             return False
         updated = self._adaptive_sampler.apply_pending_feedback()
         if not updated:
@@ -356,6 +419,27 @@ class MotionCommand(CommandTerm):
         self.metrics["adaptive_elo_rating_mean"][:] = self._adaptive_sampler.ratings.mean()
         self.metrics["adaptive_elo_rating_std"][:] = self._adaptive_sampler.ratings.std(unbiased=False)
         return True
+
+    def get_training_transition_metadata(self) -> dict[str, torch.Tensor] | None:
+        """Return metadata for the action about to be sampled by PACE/STAR."""
+
+        if not self._pace_enabled:
+            return None
+        probabilities = self._adaptive_sampler.sampling_probabilities()
+        difficulty = torch.ones(self.num_envs, dtype=torch.float32, device=self.device)
+        reference_bin_id = torch.full((self.num_envs,), -1, dtype=torch.long, device=self.device)
+        acquisition_ids = self.acquisition_mask.nonzero(as_tuple=False).squeeze(-1)
+        if acquisition_ids.numel() > 0:
+            current_bins = self._adaptive_sampler.phase_window_ids(self.phase_index[acquisition_ids])
+            reference_bin_id[acquisition_ids] = current_bins
+            difficulty[acquisition_ids] = (
+                self._adaptive_sampler.num_windows * probabilities[current_bins]
+            )
+        return {
+            "acquisition_mask": self.acquisition_mask,
+            "reference_bin_id": reference_bin_id,
+            "difficulty_weight": difficulty,
+        }
 
     def _update_command(self) -> None:
         # A terminated env is RSI-reset inside env.step() before command.compute().
@@ -405,6 +489,9 @@ class MotionCommandCfg(CommandTermCfg):
     class_type: type = MotionCommand
     asset_name: str = "robot"
     motion_file: str = MISSING
+    mastered_motion_file: str | None = None
+    challenging_motion_file: str | None = None
+    acquisition_fraction: float = 0.8
     root_body_name: str = G1_ROOT_BODY_NAME
     body_names: list[str] = list(G1_TRACKING_BODY_NAMES)
     controlled_joint_names: list[str] = list(G1_CONTROLLED_JOINT_NAMES)

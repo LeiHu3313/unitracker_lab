@@ -93,6 +93,18 @@ class AdaptiveEloSampler:
         offsets = torch.floor(torch.rand(count, device=self.device) * first_half_lengths).to(dtype=torch.long)
         return window_ids, self.window_clip_ids[window_ids], starts + offsets
 
+    def phase_window_ids(self, phase_indices: torch.Tensor) -> torch.Tensor:
+        """Map current global reference frames to their adaptive temporal bins."""
+
+        phases = phase_indices.to(device=self.device, dtype=torch.long)
+        window_ids = torch.searchsorted(self.window_ends, phases, right=True)
+        valid_index = window_ids < self.num_windows
+        safe_ids = window_ids.clamp(max=self.num_windows - 1)
+        valid = valid_index & (phases >= self.window_starts[safe_ids]) & (phases < self.window_ends[safe_ids])
+        if not bool(valid.all()):
+            raise ValueError("Reference phase does not belong to an adaptive-sampling window.")
+        return window_ids
+
     def record_outcomes(self, window_ids: torch.Tensor, failures: torch.Tensor) -> None:
         window_ids = window_ids.to(device=self.device, dtype=torch.long).reshape(-1)
         failures = failures.to(device=self.device, dtype=torch.float32).reshape(-1)

@@ -1,5 +1,4 @@
 import torch
-
 from adaptive_sampling import AdaptiveEloSampler
 
 
@@ -19,6 +18,9 @@ def test_fixed_second_windows_preserve_clip_boundaries_and_rsi_first_half():
     assert torch.all(phases >= starts)
     assert torch.all(phases < first_half_ends)
     assert torch.all(phases < sampler.window_ends[window_ids])
+
+    current_phases = torch.tensor([0, 49, 50, 119, 120, 179])
+    assert sampler.phase_window_ids(current_phases).tolist() == [0, 0, 1, 2, 3, 4]
 
 
 def test_failure_raises_window_probability_while_uniform_component_remains():

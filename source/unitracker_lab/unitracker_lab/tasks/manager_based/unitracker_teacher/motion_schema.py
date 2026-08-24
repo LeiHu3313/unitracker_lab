@@ -348,3 +348,51 @@ def load_and_validate_motion_dataset(path: str | Path) -> ValidatedMotionDataset
         body_lin_vel_w=concatenate("body_lin_vel_w"),
         body_ang_vel_w=concatenate("body_ang_vel_w"),
     )
+
+
+def merge_validated_motion_datasets(
+    first: ValidatedMotionDataset,
+    second: ValidatedMotionDataset,
+    *,
+    source_label: str = "merged",
+) -> ValidatedMotionDataset:
+    """Concatenate two validated datasets while preserving every clip boundary.
+
+    Extreme-RGMT uses the first dataset for consolidation and the second for
+    acquisition.  Keeping one global tensor store avoids a branch in every
+    reference-state property while the caller retains the split clip index.
+    """
+
+    if not np.isclose(first.fps, second.fps, atol=1.0e-6):
+        raise ValueError(f"Cannot merge motion datasets with different FPS: {first.fps} and {second.fps}.")
+    duplicate_paths = sorted(set(first.paths).intersection(second.paths))
+    if duplicate_paths:
+        raise ValueError(f"Mastered and challenging motion sets overlap: {duplicate_paths}")
+
+    clip_lengths = np.concatenate((first.clip_lengths, second.clip_lengths)).astype(np.int64, copy=False)
+    clip_starts = np.zeros(len(clip_lengths), dtype=np.int64)
+    if len(clip_lengths) > 1:
+        clip_starts[1:] = np.cumsum(clip_lengths[:-1])
+
+    digest = hashlib.sha256()
+    digest.update(bytes.fromhex(first.sha256))
+    digest.update(bytes.fromhex(second.sha256))
+
+    def concatenate(field: str) -> np.ndarray:
+        return np.ascontiguousarray(np.concatenate((getattr(first, field), getattr(second, field)), axis=0))
+
+    return ValidatedMotionDataset(
+        source_path=Path(source_label),
+        paths=first.paths + second.paths,
+        clip_sha256=first.clip_sha256 + second.clip_sha256,
+        sha256=digest.hexdigest(),
+        fps=first.fps,
+        clip_starts=clip_starts,
+        clip_lengths=clip_lengths,
+        joint_pos=concatenate("joint_pos"),
+        joint_vel=concatenate("joint_vel"),
+        body_pos_w=concatenate("body_pos_w"),
+        body_quat_w=concatenate("body_quat_w"),
+        body_lin_vel_w=concatenate("body_lin_vel_w"),
+        body_ang_vel_w=concatenate("body_ang_vel_w"),
+    )
