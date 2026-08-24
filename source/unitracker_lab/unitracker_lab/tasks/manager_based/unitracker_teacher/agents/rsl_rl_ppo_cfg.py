@@ -9,7 +9,7 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 class UnitrackerTeacherPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     num_steps_per_env = 24
     max_iterations = 50_000
-    save_interval = 5000
+    save_interval = 500
     experiment_name = "unitracker_teacher"
     run_name = "g1_stage1"
     clip_actions = None

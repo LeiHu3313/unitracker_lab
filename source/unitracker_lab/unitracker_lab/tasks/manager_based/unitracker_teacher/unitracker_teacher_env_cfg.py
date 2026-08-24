@@ -277,7 +277,7 @@ class UnitrackerTeacherEnvCfg(ManagerBasedRLEnvCfg):
 
     def __post_init__(self) -> None:
         self.decimation = CONTROL_DECIMATION
-        self.episode_length_s = 10.0
+        self.episode_length_s = 20.0
         self.sim.dt = PHYSICS_DT
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
