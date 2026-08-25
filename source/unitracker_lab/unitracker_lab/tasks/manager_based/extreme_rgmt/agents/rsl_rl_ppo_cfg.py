@@ -17,16 +17,32 @@ class ExtremeRGMTPACEAlgorithmCfg(RslRlPpoAlgorithmCfg):
     star_resample_fraction: float = 0.25
 
 
-def _policy_cfg() -> RslRlPpoActorCriticCfg:
-    return RslRlPpoActorCriticCfg(
-        class_name="ActorCritic",
+@configclass
+class ExtremeRGMTActorCriticCfg(RslRlPpoActorCriticCfg):
+    class_name = "ExtremeRGMTActorCritic"
+    proprioception_dim: int = 64
+    reference_token_dim: int = 38
+    history_length: int = 10
+    reference_window_length: int = 21
+    state_encoder_dims: list[int] = [128, 64]
+    action_encoder_dims: list[int] = [64, 64]
+    command_encoder_dims: list[int] = [128, 64]
+    # The paper does not publish these three values. They are explicit
+    # reproduction choices and are saved in every resolved agent config.
+    history_num_layers: int = 2
+    attention_num_heads: int = 4
+    fsq_num_tokens: int = 2
+    fsq_token_dim: int = 32
+    fsq_levels: int = 8
+
+
+def _policy_cfg() -> ExtremeRGMTActorCriticCfg:
+    return ExtremeRGMTActorCriticCfg(
         init_noise_std=1.0,
-        actor_obs_normalization=True,
-        critic_obs_normalization=True,
-        # Interim Stage-I proxy. The paper encoder will replace this MLP in a
-        # separate milestone without coupling that work to PACE/STAR.
-        actor_hidden_dims=[512, 512, 256, 128],
-        critic_hidden_dims=[512, 512, 256, 128],
+        actor_obs_normalization=False,
+        critic_obs_normalization=False,
+        actor_hidden_dims=[1024, 1024, 512, 256],
+        critic_hidden_dims=[1024, 1024, 512, 512],
         activation="elu",
     )
 

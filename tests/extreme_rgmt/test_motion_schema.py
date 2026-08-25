@@ -2,7 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from contracts import G1_ALL_JOINT_NAMES, G1_CONTROLLED_JOINT_NAMES, G1_LOCKED_WRIST_JOINT_NAMES, G1_TRACKING_BODY_NAMES
+from contracts import G1_ALL_JOINT_NAMES, G1_BODY_JOINT_NAMES, G1_CONTROLLED_JOINT_NAMES, G1_TRACKING_BODY_NAMES
 from motion_schema import (
     load_and_validate_motion,
     load_and_validate_motion_dataset,
@@ -48,7 +48,7 @@ def test_loader_reorders_names_into_checkpoint_contract(tmp_path):
         body_names=tuple(reversed(G1_TRACKING_BODY_NAMES)),
     )
     motion = load_and_validate_motion(path)
-    assert motion.joint_pos.shape == (3, 23)
+    assert motion.joint_pos.shape == (3, 29)
     assert motion.body_pos_w.shape == (3, 16, 3)
     assert motion.frame_count == 3
 
@@ -70,19 +70,14 @@ def test_loader_requires_explicit_names(tmp_path):
         load_and_validate_motion(path)
 
 
-def test_29_joint_motion_is_reduced_and_locked_wrists_are_validated(tmp_path):
+def test_motion_requires_all_29_actuated_joints(tmp_path):
     path = tmp_path / "motion_29.npz"
     _write_motion(path, joint_names=G1_ALL_JOINT_NAMES)
     motion = load_and_validate_motion(path)
-    assert motion.joint_pos.shape == (3, 23)
+    assert motion.joint_pos.shape == (3, 29)
 
-    with np.load(path, allow_pickle=False) as data:
-        values = {name: data[name] for name in data.files}
-    wrist_id = list(G1_ALL_JOINT_NAMES).index(G1_LOCKED_WRIST_JOINT_NAMES[0])
-    values["joint_pos"] = values["joint_pos"].copy()
-    values["joint_pos"][0, wrist_id] = 0.2
-    np.savez(path, **values)
-    with pytest.raises(ValueError, match="wrist-lock"):
+    _write_motion(path, joint_names=G1_BODY_JOINT_NAMES)
+    with pytest.raises(ValueError, match="all 29 actuated"):
         load_and_validate_motion(path)
 
 

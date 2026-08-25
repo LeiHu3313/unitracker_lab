@@ -36,9 +36,10 @@ def test_two_role_env_reset_step_and_policy_construction():
         try:
             env = RslRlVecEnvWrapper(env, clip_actions=1.0)
             observations = env.get_observations()
-            assert observations["policy"].shape == (2, 789)
-            observations, _, _, _ = env.step(torch.zeros((2, 23), device=env.unwrapped.device))
-            assert observations["policy"].shape == (2, 789)
+            assert observations["policy"].shape == (2, 1728)
+            assert observations["critic"].shape == (2, 1876)
+            observations, _, _, _ = env.step(torch.zeros((2, 29), device=env.unwrapped.device))
+            assert observations["policy"].shape == (2, 1728)
             runner_cfg = ExtremeRGMTExpansionPPORunnerCfg()
             runner = OnPolicyRunner(env, runner_cfg.to_dict(), log_dir=None, device=runner_cfg.device)
             assert runner is not None

@@ -10,11 +10,10 @@ from __future__ import annotations
 from collections import OrderedDict
 
 G1_PHYSICAL_DOF = 29
-G1_CONTROLLED_DOF = 23
-G1_LOCKED_WRIST_DOF = 6
+G1_CONTROLLED_DOF = 29
 G1_TRACKING_BODY_COUNT = 16
 
-G1_CONTROLLED_JOINT_NAMES = (
+G1_BODY_JOINT_NAMES = (
     "left_hip_pitch_joint",
     "left_hip_roll_joint",
     "left_hip_yaw_joint",
@@ -40,7 +39,7 @@ G1_CONTROLLED_JOINT_NAMES = (
     "right_elbow_joint",
 )
 
-G1_LOCKED_WRIST_JOINT_NAMES = (
+G1_WRIST_JOINT_NAMES = (
     "left_wrist_roll_joint",
     "left_wrist_pitch_joint",
     "left_wrist_yaw_joint",
@@ -48,9 +47,9 @@ G1_LOCKED_WRIST_JOINT_NAMES = (
     "right_wrist_pitch_joint",
     "right_wrist_yaw_joint",
 )
-G1_LOCKED_WRIST_POSITIONS = (0.0,) * G1_LOCKED_WRIST_DOF
 
-G1_ALL_JOINT_NAMES = G1_CONTROLLED_JOINT_NAMES + G1_LOCKED_WRIST_JOINT_NAMES
+G1_CONTROLLED_JOINT_NAMES = G1_BODY_JOINT_NAMES + G1_WRIST_JOINT_NAMES
+G1_ALL_JOINT_NAMES = G1_CONTROLLED_JOINT_NAMES
 G1_DEFAULT_JOINT_POSITIONS = {name: 0.0 for name in G1_ALL_JOINT_NAMES}
 for _name in G1_ALL_JOINT_NAMES:
     if "hip_pitch" in _name:
@@ -92,55 +91,28 @@ G1_ROOT_BODY_NAME = "pelvis"
 G1_NON_ROOT_TRACKING_BODY_NAMES = G1_TRACKING_BODY_NAMES[1:]
 G1_NON_ROOT_TRACKING_BODY_COUNT = len(G1_NON_ROOT_TRACKING_BODY_NAMES)
 G1_FOOT_BODY_NAMES = ("left_ankle_roll_link", "right_ankle_roll_link")
-G1_HAND_BODY_NAMES = ("left_rubber_hand", "right_rubber_hand")
-# The paper's local five-point term: trunk, both ankle endpoints, both wrists.
-# Keep this order stable because it is recorded in each run's contract snapshot.
-G1_LOCAL_FIVE_POINT_BODY_NAMES = ("torso_link", *G1_FOOT_BODY_NAMES, *G1_HAND_BODY_NAMES)
 
-PHYSICS_DT = 0.005
-CONTROL_DECIMATION = 4
+PHYSICS_DT = 0.002
+CONTROL_DECIMATION = 10
 CONTROL_DT = PHYSICS_DT * CONTROL_DECIMATION
 CONTROL_FREQUENCY_HZ = 1.0 / CONTROL_DT
 ACTION_DIM = G1_CONTROLLED_DOF
-# The interim policy proxy receives the current reference plus four future frames.
-FUTURE_REFERENCE_FRAMES = 5
+PROPRIOCEPTION_DIM = 3 + 3 + 2 * G1_CONTROLLED_DOF
+REFERENCE_TOKEN_DIM = 3 + 3 + 3 + G1_CONTROLLED_DOF
+HISTORY_LENGTH = 10
+REFERENCE_WINDOW_RADIUS = 10
+REFERENCE_WINDOW_LENGTH = 2 * REFERENCE_WINDOW_RADIUS + 1
 
-# The insertion order is the tensor concatenation order in observations.py.
 POLICY_OBSERVATION_BLOCK_DIMS = OrderedDict(
     (
-        # Current simulated robot state.
-        ("current_root_height", 1),
-        ("current_projected_gravity", 3),
-        ("current_root_lin_vel_local", 3),
-        ("current_root_ang_vel_local", 3),
-        ("current_non_root_body_pos_local", 45),
-        ("current_non_root_body_ori_rot6d_local", 90),
-        ("current_non_root_body_lin_vel_local", 45),
-        ("current_non_root_body_ang_vel_local", 45),
-        # This is the complete physical G1 state, including the six locked
-        # wrists.  Goals remain limited to the 23 joints the policy controls.
-        ("current_all_joint_pos_rel_default", 29),
-        ("current_all_joint_vel", 29),
-        # Current contact mode is simulator privileged information, not a
-        # reference target.  Ordering is G1_FOOT_BODY_NAMES.
-        ("current_foot_contact_mask", 2),
-        ("previous_action", 23),
-        ("next_root_height_error", 1),
-        ("next_root_ori_error_rot6d", 6),
-        ("next_root_lin_vel_error_local", 3),
-        ("next_root_ang_vel_error_local", 3),
-        # Soft global torso anchor, expressed in the current pelvis frame.
-        ("next_torso_pos_error_local", 3),
-        ("next_non_root_body_pos_error_local", 45),
-        ("next_non_root_body_ori_error_rot6d", 90),
-        ("next_non_root_body_lin_vel_error_local", 45),
-        ("next_non_root_body_ang_vel_error_local", 45),
-        # Reference joint command at t, ..., t+4.  Each frame contains the
-        # 23 controlled q targets and velocity targets scaled by 0.05.
-        ("future_controlled_joint_pos_vel_command", FUTURE_REFERENCE_FRAMES * 2 * G1_CONTROLLED_DOF),
+        ("proprioception_history", HISTORY_LENGTH * PROPRIOCEPTION_DIM),
+        ("previous_action_history", HISTORY_LENGTH * ACTION_DIM),
+        ("reference_window", REFERENCE_WINDOW_LENGTH * REFERENCE_TOKEN_DIM),
     )
 )
 POLICY_OBSERVATION_DIM = sum(POLICY_OBSERVATION_BLOCK_DIMS.values())
+CRITIC_PRIVILEGED_DIM = 1 + 3 * G1_TRACKING_BODY_COUNT + 6 * G1_TRACKING_BODY_COUNT + 3
+CRITIC_OBSERVATION_DIM = POLICY_OBSERVATION_DIM + CRITIC_PRIVILEGED_DIM
 
 MOTION_REQUIRED_FIELDS = (
     "fps",
@@ -154,34 +126,22 @@ MOTION_REQUIRED_FIELDS = (
     "body_ang_vel_w",
 )
 MOTION_QUATERNION_CONVENTION = "WXYZ"
-MOTION_WRIST_POSITION_TOLERANCE_RAD = 0.05
-MOTION_WRIST_VELOCITY_TOLERANCE_RAD_S = 0.1
 G1_URDF_SHA256 = "8df048597b758a4f868c1eef12ba995e331420a5aceef810a07c12e3b208ac13"
 
 TRACKING_REWARD_SPECS = OrderedDict(
     (
-        # A soft world-frame torso anchor avoids rewarding an arbitrary global
-        # translation more strongly than the physically feasible body layout.
-        ("torso_position", {"weight": 2.0, "sigma": 0.30}),
-        ("torso_orientation", {"weight": 2.0, "sigma": 0.40}),
-        ("torso_linear_velocity", {"weight": 1.0, "sigma": 1.00}),
-        ("torso_angular_velocity", {"weight": 2.0, "sigma": 2.50}),
-        # Relative whole-body pose is the primary tracking objective.
-        ("body_position", {"weight": 2.0, "sigma": 0.30}),
+        ("anchor_orientation", {"weight": 0.5, "sigma": 0.40}),
+        ("body_position", {"weight": 1.0, "sigma": 0.30}),
         ("body_orientation", {"weight": 1.0, "sigma": 0.40}),
-        # Joint and whole-body dynamical tracking.
-        ("joint_position", {"weight": 0.5, "sigma": 0.25}),
-        ("joint_velocity", {"weight": 0.5, "sigma": 2.50}),
         ("body_linear_velocity", {"weight": 1.0, "sigma": 1.00}),
         ("body_angular_velocity", {"weight": 1.0, "sigma": 2.50}),
     )
 )
 REGULARIZATION_REWARD_WEIGHTS = {
     "action_rate": -0.1,
-    "controlled_joint_velocity": -1.0e-4,
-    "controlled_joint_position_limits": -10.0,
-    "foot_slip": -1.0,
-    "early_termination": -50.0,
+    "joint_position_limits": -10.0,
+    "undesired_contacts": -0.1,
+    "foot_slip": -0.1,
 }
 FOOT_CONTACT_FORCE_THRESHOLD_N = 1.0
 TERMINATION_SPECS = {
@@ -189,14 +149,16 @@ TERMINATION_SPECS = {
     "pelvis_position": {"threshold": 0.4},
 }
 
-REWARD_CURRICULUM = None
 ASSET_DR_RANGES = {
-    "static_friction": (0.8, 1.2),
-    "dynamic_friction": (0.8, 1.2),
-    "restitution": (0.0, 0.15),
-    "torso_pelvis_com_x": (-0.01, 0.01),
-    "torso_pelvis_com_yz": (-0.01, 0.01),
-    "link_mass_scale": (0.95, 1.05),
+    "ground_friction": (0.1, 1.75),
+    "added_base_mass_kg": (-3.0, 6.0),
+    "base_com_x_m": (-0.025, 0.025),
+    "base_com_yz_m": (-0.05, 0.05),
+    "motor_strength_scale": (0.8, 1.2),
+    "pd_gain_scale": (0.8, 1.2),
+    "motor_zero_offset_rad": (-0.01, 0.01),
+    "joint_armature_scale": (1.0, 1.05),
+    "external_push_interval_s": (1.0, 3.0),
 }
 
 def policy_observation_slices() -> dict[str, tuple[int, int]]:
@@ -228,23 +190,24 @@ def contract_dict() -> dict[str, object]:
         "robot": "unitree_g1_29dof_rev_1_0",
         "physical_dof": G1_PHYSICAL_DOF,
         "controlled_dof": G1_CONTROLLED_DOF,
-        "locked_wrist_dof": G1_LOCKED_WRIST_DOF,
         "controlled_joint_names": list(G1_CONTROLLED_JOINT_NAMES),
-        "locked_wrist_joint_names": list(G1_LOCKED_WRIST_JOINT_NAMES),
-        "locked_wrist_positions": list(G1_LOCKED_WRIST_POSITIONS),
+        "wrist_joint_names": list(G1_WRIST_JOINT_NAMES),
         "default_joint_positions": G1_DEFAULT_JOINT_POSITIONS,
         "tracking_body_names": list(G1_TRACKING_BODY_NAMES),
         "non_root_tracking_body_names": list(G1_NON_ROOT_TRACKING_BODY_NAMES),
         "root_body_name": G1_ROOT_BODY_NAME,
         "foot_body_names": list(G1_FOOT_BODY_NAMES),
-        "local_five_point_body_names": list(G1_LOCAL_FIVE_POINT_BODY_NAMES),
         "physics_dt": PHYSICS_DT,
         "control_decimation": CONTROL_DECIMATION,
         "control_dt": CONTROL_DT,
         "action_dim": ACTION_DIM,
-        "future_reference_frames": FUTURE_REFERENCE_FRAMES,
+        "proprioception_dim": PROPRIOCEPTION_DIM,
+        "reference_token_dim": REFERENCE_TOKEN_DIM,
+        "history_length": HISTORY_LENGTH,
+        "reference_window_radius": REFERENCE_WINDOW_RADIUS,
+        "reference_window_length": REFERENCE_WINDOW_LENGTH,
         "actor_observation_dim": POLICY_OBSERVATION_DIM,
-        "critic_observation_dim": POLICY_OBSERVATION_DIM,
+        "critic_observation_dim": CRITIC_OBSERVATION_DIM,
         "observation_blocks": {
             name: {"start": bounds[0], "end": bounds[1], "dim": bounds[1] - bounds[0]}
             for name, bounds in policy_observation_slices().items()
@@ -257,18 +220,17 @@ def contract_dict() -> dict[str, object]:
         "urdf_sha256": G1_URDF_SHA256,
         "tracking_reward_specs": TRACKING_REWARD_SPECS,
         "regularization_reward_weights": REGULARIZATION_REWARD_WEIGHTS,
-        "reward_curriculum": REWARD_CURRICULUM,
         "termination_specs": TERMINATION_SPECS,
         "asset_dr_ranges": ASSET_DR_RANGES,
     }
 
 
 assert len(G1_CONTROLLED_JOINT_NAMES) == G1_CONTROLLED_DOF
-assert len(G1_LOCKED_WRIST_JOINT_NAMES) == G1_LOCKED_WRIST_DOF
 assert len(set(G1_ALL_JOINT_NAMES)) == G1_PHYSICAL_DOF
 assert len(G1_TRACKING_BODY_NAMES) == G1_TRACKING_BODY_COUNT
 assert G1_TRACKING_BODY_NAMES[0] == G1_ROOT_BODY_NAME
 assert len(G1_NON_ROOT_TRACKING_BODY_NAMES) == G1_NON_ROOT_TRACKING_BODY_COUNT == 15
-assert len(G1_LOCAL_FIVE_POINT_BODY_NAMES) == 5
-assert set(G1_LOCAL_FIVE_POINT_BODY_NAMES).issubset(G1_TRACKING_BODY_NAMES)
-assert POLICY_OBSERVATION_DIM == 789
+assert PROPRIOCEPTION_DIM == 64
+assert REFERENCE_TOKEN_DIM == 38
+assert POLICY_OBSERVATION_DIM == 1728
+assert CRITIC_OBSERVATION_DIM == 1876

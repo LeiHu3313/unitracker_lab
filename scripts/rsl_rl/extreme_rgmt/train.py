@@ -118,12 +118,22 @@ def _write_run_contracts(
 ) -> None:
     dump_yaml(str(params_dir / "env.yaml"), env_cfg)
     dump_yaml(str(params_dir / "agent.yaml"), agent_cfg)
-    _dump_json(params_dir / "g1_contract.json", contract_dict())
+    g1_contract = contract_dict()
+    _dump_json(params_dir / "g1_contract.json", g1_contract)
     method = {
         "paper": "arXiv:2607.20110v1",
         "stage": args_cli.stage,
         "scope": "standalone clean-room reproduction",
         "inputs": {key: value for key, value in inputs.items() if not key.endswith("_paths")},
+        "reproduction_choices": {
+            "history_encoder_layers": 2,
+            "attention_heads": 4,
+            "fsq_scalar_levels": 8,
+            "residual_action_scale": 1.0,
+            "push_velocity_range": {"x": [-0.5, 0.5], "y": [-0.5, 0.5], "yaw": [-0.5, 0.5]},
+            "reward_kernel_sigmas": g1_contract["tracking_reward_specs"],
+            "training_termination_thresholds": g1_contract["termination_specs"],
+        },
     }
     if checkpoint is not None:
         method.update({

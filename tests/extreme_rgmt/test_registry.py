@@ -8,7 +8,9 @@ def test_only_extreme_rgmt_task_is_registered():
     ).read_text(encoding="utf-8")
     assert 'id="Extreme-RGMT-Base-v0"' in source
     assert 'id="Extreme-RGMT-Expansion-v0"' in source
-    assert "Unitracker_Teacher" not in source
+    assert not (
+        root / "source/unitracker_lab/unitracker_lab/tasks/manager_based/unitracker_teacher"
+    ).exists()
 
 
 def test_training_entry_point_exposes_two_explicit_stages():

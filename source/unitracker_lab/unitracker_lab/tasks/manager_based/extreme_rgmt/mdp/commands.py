@@ -16,13 +16,11 @@ from isaaclab.utils import configclass
 from isaaclab.utils.math import quat_error_magnitude
 
 from ..contracts import (
-    FUTURE_REFERENCE_FRAMES,
     G1_ALL_JOINT_NAMES,
     G1_CONTROLLED_JOINT_NAMES,
-    G1_LOCKED_WRIST_JOINT_NAMES,
-    G1_LOCKED_WRIST_POSITIONS,
     G1_ROOT_BODY_NAME,
     G1_TRACKING_BODY_NAMES,
+    REFERENCE_WINDOW_RADIUS,
     reference_promotion_mask,
 )
 from ..motion_schema import load_and_validate_motion_dataset, merge_validated_motion_datasets
@@ -43,24 +41,17 @@ class MotionCommand(CommandTerm):
 
         body_ids, body_names = self.robot.find_bodies(cfg.body_names, preserve_order=True)
         joint_ids, joint_names = self.robot.find_joints(cfg.controlled_joint_names, preserve_order=True)
-        locked_ids, locked_names = self.robot.find_joints(cfg.locked_joint_names, preserve_order=True)
-        all_joint_ids, all_joint_names = self.robot.find_joints(G1_ALL_JOINT_NAMES, preserve_order=True)
         if tuple(body_names) != tuple(cfg.body_names):
             raise ValueError(f"Live G1 tracking bodies do not match contract: {body_names}")
         if tuple(joint_names) != tuple(cfg.controlled_joint_names):
             raise ValueError(f"Live G1 controlled joints do not match contract: {joint_names}")
-        if tuple(locked_names) != tuple(cfg.locked_joint_names):
-            raise ValueError(f"Live G1 locked wrist joints do not match contract: {locked_names}")
-        if tuple(all_joint_names) != G1_ALL_JOINT_NAMES:
-            raise ValueError(f"Live G1 physical joints do not match contract: {all_joint_names}")
+        if tuple(joint_names) != G1_ALL_JOINT_NAMES:
+            raise ValueError(f"Live G1 physical joints do not match contract: {joint_names}")
 
         self._body_ids = torch.as_tensor(body_ids, dtype=torch.long, device=self.device)
         self._controlled_joint_ids = torch.as_tensor(joint_ids, dtype=torch.long, device=self.device)
-        self._locked_joint_ids = torch.as_tensor(locked_ids, dtype=torch.long, device=self.device)
-        self._all_joint_ids = torch.as_tensor(all_joint_ids, dtype=torch.long, device=self.device)
         self._root_body_index = cfg.body_names.index(cfg.root_body_name)
         self._root_body_id = int(self._body_ids[self._root_body_index].item())
-        self._locked_positions = torch.as_tensor(cfg.locked_joint_positions, dtype=torch.float32, device=self.device)
 
         self._pace_enabled = cfg.mastered_motion_file is not None or cfg.challenging_motion_file is not None
         if self._pace_enabled:
@@ -135,9 +126,9 @@ class MotionCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        """Five-frame joint command used by the policy proxy and diagnostics."""
+        """Current 29-DoF reference pose exposed through the command API."""
 
-        return self.future_ref_joint_command
+        return self.current_ref_joint_pos
 
     @property
     def active_clip_end(self) -> torch.Tensor:
@@ -178,21 +169,31 @@ class MotionCommand(CommandTerm):
         return self._joint_vel[self.target_index]
 
     @property
-    def future_ref_joint_indices(self) -> torch.Tensor:
-        """Return reference indices ``t, ..., t+4``, clamped to each clip end."""
+    def reference_window_indices(self) -> torch.Tensor:
+        """Return ``t-10, ..., t+10`` indices clamped within each clip."""
 
-        offsets = torch.arange(FUTURE_REFERENCE_FRAMES, device=self.device, dtype=torch.long)
+        offsets = torch.arange(
+            -REFERENCE_WINDOW_RADIUS, REFERENCE_WINDOW_RADIUS + 1, device=self.device, dtype=torch.long
+        )
         indices = self.phase_index[:, None] + offsets[None, :]
+        indices = torch.maximum(indices, self._clip_starts[self.motion_id][:, None])
         return torch.minimum(indices, (self.active_clip_end - 1)[:, None])
 
     @property
-    def future_ref_joint_command(self) -> torch.Tensor:
-        """Reference ``[q_t, ..., q_t+4, 0.05*dq_t, ..., 0.05*dq_t+4]`` command."""
+    def reference_window_joint_pos(self) -> torch.Tensor:
+        return self._joint_pos[self.reference_window_indices]
 
-        indices = self.future_ref_joint_indices
-        joint_pos = self._joint_pos[indices].flatten(1)
-        joint_vel = (0.05 * self._joint_vel[indices]).flatten(1)
-        return torch.cat((joint_pos, joint_vel), dim=-1)
+    @property
+    def reference_window_root_quat_w(self) -> torch.Tensor:
+        return self._body_quat_w[self.reference_window_indices, self._root_body_index]
+
+    @property
+    def reference_window_root_lin_vel_w(self) -> torch.Tensor:
+        return self._body_lin_vel_w[self.reference_window_indices, self._root_body_index]
+
+    @property
+    def reference_window_root_ang_vel_w(self) -> torch.Tensor:
+        return self._body_ang_vel_w[self.reference_window_indices, self._root_body_index]
 
     @property
     def target_ref_body_pos_w(self) -> torch.Tensor:
@@ -246,21 +247,17 @@ class MotionCommand(CommandTerm):
     def robot_all_joint_pos(self) -> torch.Tensor:
         """Physical 29-DoF joint state in the checkpoint contract order."""
 
-        return self.robot.data.joint_pos[:, self._all_joint_ids]
+        return self.robot.data.joint_pos[:, self._controlled_joint_ids]
 
     @property
     def robot_all_joint_vel(self) -> torch.Tensor:
         """Physical 29-DoF joint velocity in the checkpoint contract order."""
 
-        return self.robot.data.joint_vel[:, self._all_joint_ids]
+        return self.robot.data.joint_vel[:, self._controlled_joint_ids]
 
     @property
     def robot_all_default_joint_pos(self) -> torch.Tensor:
-        return self.robot.data.default_joint_pos[:, self._all_joint_ids]
-
-    @property
-    def locked_joint_ids(self) -> torch.Tensor:
-        return self._locked_joint_ids
+        return self.robot.data.default_joint_pos[:, self._controlled_joint_ids]
 
     @property
     def controlled_joint_ids(self) -> torch.Tensor:
@@ -372,13 +369,9 @@ class MotionCommand(CommandTerm):
         joint_vel = torch.zeros_like(joint_pos)
         joint_pos[:, self._controlled_joint_ids] = self._joint_pos[phase]
         joint_vel[:, self._controlled_joint_ids] = self._joint_vel[phase]
-        joint_pos[:, self._locked_joint_ids] = self._locked_positions
-        joint_vel[:, self._locked_joint_ids] = 0.0
 
         self.robot.write_root_state_to_sim(root_state, env_ids=env_ids)
         self.robot.write_joint_state_to_sim(joint_pos, joint_vel, env_ids=env_ids)
-        # The 23-D ActionTerm never touches wrist targets, so seed every implicit
-        # target explicitly on reset and leave the six wrist buffers at zero.
         self.robot.set_joint_position_target(joint_pos, env_ids=env_ids)
         # Position-control PD uses a zero velocity target. The reference qdot is
         # written into simulator state and observations, not left as a persistent
@@ -495,8 +488,6 @@ class MotionCommandCfg(CommandTermCfg):
     root_body_name: str = G1_ROOT_BODY_NAME
     body_names: list[str] = list(G1_TRACKING_BODY_NAMES)
     controlled_joint_names: list[str] = list(G1_CONTROLLED_JOINT_NAMES)
-    locked_joint_names: list[str] = list(G1_LOCKED_WRIST_JOINT_NAMES)
-    locked_joint_positions: list[float] = list(G1_LOCKED_WRIST_POSITIONS)
     sampling_mode: str = "adaptive"
     adaptive_window_s: float = 1.0
     adaptive_uniform_ratio: float = 0.1

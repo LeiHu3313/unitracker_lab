@@ -18,7 +18,7 @@ from isaaclab.sensors import ContactSensorCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 
-from unitracker_lab.assets.g1 import G1_29DOF_CFG, G1_ACTION_SCALE
+from unitracker_lab.assets.g1 import G1_29DOF_CFG
 
 from . import mdp
 from .contracts import (
@@ -28,6 +28,7 @@ from .contracts import (
     G1_CONTROLLED_JOINT_NAMES,
     G1_FOOT_BODY_NAMES,
     G1_ROOT_BODY_NAME,
+    HISTORY_LENGTH,
     PHYSICS_DT,
     REGULARIZATION_REWARD_WEIGHTS,
     TERMINATION_SPECS,
@@ -74,12 +75,13 @@ class ExtremeRGMTCommandsCfg:
 
 @configclass
 class ExtremeRGMTActionsCfg:
-    joint_pos = mdp.JointPositionActionCfg(
+    joint_pos = mdp.ReferenceResidualJointPositionActionCfg(
         asset_name="robot",
         joint_names=list(G1_CONTROLLED_JOINT_NAMES),
         preserve_order=True,
-        scale=G1_ACTION_SCALE,
-        use_default_offset=True,
+        scale=1.0,
+        use_default_offset=False,
+        command_name="motion",
     )
 
 
@@ -87,7 +89,21 @@ class ExtremeRGMTActionsCfg:
 class ExtremeRGMTObservationsCfg:
     @configclass
     class PolicyCfg(ObsGroup):
-        state = ObsTerm(func=mdp.policy_observation, params={"command_name": "motion"})
+        proprioception = ObsTerm(
+            func=mdp.proprioception,
+            params={"command_name": "motion", "enable_noise": True},
+            history_length=HISTORY_LENGTH,
+            flatten_history_dim=True,
+        )
+        previous_action = ObsTerm(
+            func=mdp.previous_action,
+            history_length=HISTORY_LENGTH,
+            flatten_history_dim=True,
+        )
+        reference_window = ObsTerm(
+            func=mdp.reference_window,
+            params={"command_name": "motion", "enable_noise": True},
+        )
 
         def __post_init__(self) -> None:
             self.enable_corruption = False
@@ -95,7 +111,22 @@ class ExtremeRGMTObservationsCfg:
 
     @configclass
     class CriticCfg(ObsGroup):
-        state = ObsTerm(func=mdp.policy_observation, params={"command_name": "motion"})
+        proprioception = ObsTerm(
+            func=mdp.proprioception,
+            params={"command_name": "motion", "enable_noise": True},
+            history_length=HISTORY_LENGTH,
+            flatten_history_dim=True,
+        )
+        previous_action = ObsTerm(
+            func=mdp.previous_action,
+            history_length=HISTORY_LENGTH,
+            flatten_history_dim=True,
+        )
+        reference_window = ObsTerm(
+            func=mdp.reference_window,
+            params={"command_name": "motion", "enable_noise": True},
+        )
+        privileged_state = ObsTerm(func=mdp.critic_privileged_state, params={"command_name": "motion"})
 
         def __post_init__(self) -> None:
             self.enable_corruption = False
@@ -112,74 +143,92 @@ class ExtremeRGMTEventsCfg:
         mode="startup",
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "static_friction_range": ASSET_DR_RANGES["static_friction"],
-            "dynamic_friction_range": ASSET_DR_RANGES["dynamic_friction"],
-            "restitution_range": ASSET_DR_RANGES["restitution"],
+            "static_friction_range": ASSET_DR_RANGES["ground_friction"],
+            "dynamic_friction_range": ASSET_DR_RANGES["ground_friction"],
+            "restitution_range": (0.0, 0.0),
             "num_buckets": 64,
             "make_consistent": True,
         },
     )
-    torso_pelvis_com = EventTerm(
-        func=mdp.randomize_rigid_body_com,
-        mode="startup",
-        params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=["pelvis", "torso_link"]),
-            "com_range": {
-                "x": ASSET_DR_RANGES["torso_pelvis_com_x"],
-                "y": ASSET_DR_RANGES["torso_pelvis_com_yz"],
-                "z": ASSET_DR_RANGES["torso_pelvis_com_yz"],
-            },
-        },
-    )
-    link_mass = EventTerm(
+    added_base_mass = EventTerm(
         func=mdp.randomize_rigid_body_mass,
         mode="startup",
         params={
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*"),
-            "mass_distribution_params": ASSET_DR_RANGES["link_mass_scale"],
-            "operation": "scale",
+            "asset_cfg": SceneEntityCfg("robot", body_names=[G1_ROOT_BODY_NAME]),
+            "mass_distribution_params": ASSET_DR_RANGES["added_base_mass_kg"],
+            "operation": "add",
             "distribution": "uniform",
             "recompute_inertia": True,
+        },
+    )
+    base_com = EventTerm(
+        func=mdp.randomize_rigid_body_com,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names=[G1_ROOT_BODY_NAME]),
+            "com_range": {
+                "x": ASSET_DR_RANGES["base_com_x_m"],
+                "y": ASSET_DR_RANGES["base_com_yz_m"],
+                "z": ASSET_DR_RANGES["base_com_yz_m"],
+            },
+        },
+    )
+    motor_strength = EventTerm(
+        func=mdp.randomize_motor_strength,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", joint_names=list(G1_CONTROLLED_JOINT_NAMES)),
+            "scale_range": ASSET_DR_RANGES["motor_strength_scale"],
+        },
+    )
+    pd_gains = EventTerm(
+        func=mdp.randomize_actuator_gains,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", joint_names=list(G1_CONTROLLED_JOINT_NAMES)),
+            "stiffness_distribution_params": ASSET_DR_RANGES["pd_gain_scale"],
+            "damping_distribution_params": ASSET_DR_RANGES["pd_gain_scale"],
+            "operation": "scale",
+            "distribution": "uniform",
+        },
+    )
+    motor_zero_offset = EventTerm(
+        func=mdp.randomize_motor_zero_offset,
+        mode="startup",
+        params={"offset_range": ASSET_DR_RANGES["motor_zero_offset_rad"]},
+    )
+    joint_armature = EventTerm(
+        func=mdp.randomize_joint_parameters,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", joint_names=list(G1_CONTROLLED_JOINT_NAMES)),
+            "armature_distribution_params": ASSET_DR_RANGES["joint_armature_scale"],
+            "operation": "scale",
+            "distribution": "uniform",
+        },
+    )
+    # The paper publishes the interval but not the impulse magnitude. The
+    # velocity range below is an explicit, serialized reproduction choice.
+    external_push = EventTerm(
+        func=mdp.push_by_setting_velocity,
+        mode="interval",
+        interval_range_s=ASSET_DR_RANGES["external_push_interval_s"],
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-0.5, 0.5)},
         },
     )
 
 
 @configclass
 class ExtremeRGMTRewardsCfg:
-    torso_position = RewTerm(
-        func=mdp.global_body_position_tracking_exp,
-        weight=TRACKING_REWARD_SPECS["torso_position"]["weight"],
-        params={
-            "command_name": "motion",
-            "body_name": "torso_link",
-            "sigma": TRACKING_REWARD_SPECS["torso_position"]["sigma"],
-        },
-    )
-    torso_orientation = RewTerm(
+    anchor_orientation = RewTerm(
         func=mdp.global_body_orientation_tracking_exp,
-        weight=TRACKING_REWARD_SPECS["torso_orientation"]["weight"],
+        weight=TRACKING_REWARD_SPECS["anchor_orientation"]["weight"],
         params={
             "command_name": "motion",
-            "body_name": "torso_link",
-            "sigma": TRACKING_REWARD_SPECS["torso_orientation"]["sigma"],
-        },
-    )
-    torso_linear_velocity = RewTerm(
-        func=mdp.global_body_linear_velocity_tracking_exp,
-        weight=TRACKING_REWARD_SPECS["torso_linear_velocity"]["weight"],
-        params={
-            "command_name": "motion",
-            "body_name": "torso_link",
-            "sigma": TRACKING_REWARD_SPECS["torso_linear_velocity"]["sigma"],
-        },
-    )
-    torso_angular_velocity = RewTerm(
-        func=mdp.global_body_angular_velocity_tracking_exp,
-        weight=TRACKING_REWARD_SPECS["torso_angular_velocity"]["weight"],
-        params={
-            "command_name": "motion",
-            "body_name": "torso_link",
-            "sigma": TRACKING_REWARD_SPECS["torso_angular_velocity"]["sigma"],
+            "body_name": G1_ROOT_BODY_NAME,
+            "sigma": TRACKING_REWARD_SPECS["anchor_orientation"]["sigma"],
         },
     )
     body_position = RewTerm(
@@ -191,16 +240,6 @@ class ExtremeRGMTRewardsCfg:
         func=mdp.body_orientation_tracking_exp,
         weight=TRACKING_REWARD_SPECS["body_orientation"]["weight"],
         params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["body_orientation"]["sigma"]},
-    )
-    joint_position = RewTerm(
-        func=mdp.joint_position_tracking_exp,
-        weight=TRACKING_REWARD_SPECS["joint_position"]["weight"],
-        params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["joint_position"]["sigma"]},
-    )
-    joint_velocity = RewTerm(
-        func=mdp.joint_velocity_tracking_exp,
-        weight=TRACKING_REWARD_SPECS["joint_velocity"]["weight"],
-        params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["joint_velocity"]["sigma"]},
     )
     body_linear_velocity = RewTerm(
         func=mdp.body_linear_velocity_tracking_exp,
@@ -216,18 +255,25 @@ class ExtremeRGMTRewardsCfg:
         func=mdp.action_rate_penalty,
         weight=REGULARIZATION_REWARD_WEIGHTS["action_rate"],
     )
-    controlled_joint_velocity = RewTerm(
-        func=mdp.controlled_joint_velocity_penalty,
-        weight=REGULARIZATION_REWARD_WEIGHTS["controlled_joint_velocity"],
+    joint_position_limits = RewTerm(
+        func=mdp.controlled_joint_position_limit_penalty,
+        weight=REGULARIZATION_REWARD_WEIGHTS["joint_position_limits"],
         params={
             "asset_cfg": SceneEntityCfg("robot", joint_names=list(G1_CONTROLLED_JOINT_NAMES), preserve_order=True),
         },
     )
-    controlled_joint_position_limits = RewTerm(
-        func=mdp.controlled_joint_position_limit_penalty,
-        weight=REGULARIZATION_REWARD_WEIGHTS["controlled_joint_position_limits"],
+    undesired_contacts = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=REGULARIZATION_REWARD_WEIGHTS["undesired_contacts"],
         params={
-            "asset_cfg": SceneEntityCfg("robot", joint_names=list(G1_CONTROLLED_JOINT_NAMES), preserve_order=True),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=[
+                    r"^(?!left_ankle_roll_link$)(?!right_ankle_roll_link$)"
+                    r"(?!left_rubber_hand$)(?!right_rubber_hand$).+$"
+                ],
+            ),
+            "threshold": FOOT_CONTACT_FORCE_THRESHOLD_N,
         },
     )
     foot_slip = RewTerm(
@@ -238,10 +284,6 @@ class ExtremeRGMTRewardsCfg:
             "asset_cfg": SceneEntityCfg("robot", body_names=list(G1_FOOT_BODY_NAMES), preserve_order=True),
             "threshold": FOOT_CONTACT_FORCE_THRESHOLD_N,
         },
-    )
-    early_termination = RewTerm(
-        func=mdp.early_termination_penalty,
-        weight=REGULARIZATION_REWARD_WEIGHTS["early_termination"],
     )
 
 

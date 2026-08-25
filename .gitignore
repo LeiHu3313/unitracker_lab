@@ -71,8 +71,8 @@ _build
 tests/
 !tests/
 tests/*
-!tests/unitracker_teacher/
-!tests/unitracker_teacher/**
+!tests/extreme_rgmt/
+!tests/extreme_rgmt/**
 tests/**/__pycache__/
 tests/**/*.pyc
 

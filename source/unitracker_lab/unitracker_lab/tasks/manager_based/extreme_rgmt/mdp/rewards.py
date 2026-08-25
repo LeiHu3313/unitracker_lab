@@ -1,4 +1,4 @@
-"""Whole-body tracking rewards and scheduled physical regularization."""
+"""Whole-body tracking rewards and physical regularization."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from isaaclab.utils import math as math_utils
 from isaaclab.utils.math import quat_error_magnitude
 
 from .commands import MotionCommand
-from .curriculum import regularization_scale
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -67,18 +66,6 @@ def _root_relative_position_error(command: MotionCommand, body_ids: list[int]) -
     return reference_local - robot_local
 
 
-def global_body_position_tracking_exp(
-    env: ManagerBasedRLEnv, command_name: str, body_name: str, sigma: float
-) -> torch.Tensor:
-    """Track one body in world coordinates as a soft global anchor."""
-
-    command = _command(env, command_name)
-    body_id = _body_id(command, body_name)
-    return _exp_mean_square(
-        command.target_ref_body_pos_w[:, body_id] - command.robot_body_pos_w[:, body_id], sigma, (1,)
-    )
-
-
 def global_body_orientation_tracking_exp(
     env: ManagerBasedRLEnv, command_name: str, body_name: str, sigma: float
 ) -> torch.Tensor:
@@ -88,26 +75,6 @@ def global_body_orientation_tracking_exp(
     body_id = _body_id(command, body_name)
     error = quat_error_magnitude(command.target_ref_body_quat_w[:, body_id], command.robot_body_quat_w[:, body_id])
     return torch.exp(-torch.square(error) / (sigma * sigma))
-
-
-def global_body_linear_velocity_tracking_exp(
-    env: ManagerBasedRLEnv, command_name: str, body_name: str, sigma: float
-) -> torch.Tensor:
-    command = _command(env, command_name)
-    body_id = _body_id(command, body_name)
-    return _exp_mean_square(
-        command.target_ref_body_lin_vel_w[:, body_id] - command.robot_body_lin_vel_w[:, body_id], sigma, (1,)
-    )
-
-
-def global_body_angular_velocity_tracking_exp(
-    env: ManagerBasedRLEnv, command_name: str, body_name: str, sigma: float
-) -> torch.Tensor:
-    command = _command(env, command_name)
-    body_id = _body_id(command, body_name)
-    return _exp_mean_square(
-        command.target_ref_body_ang_vel_w[:, body_id] - command.robot_body_ang_vel_w[:, body_id], sigma, (1,)
-    )
 
 
 def body_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
@@ -130,16 +97,6 @@ def body_orientation_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sig
     return _exp_mean_square(error, sigma, (1,))
 
 
-def joint_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
-    command = _command(env, command_name)
-    return _exp_mean_square(command.target_ref_joint_pos - command.robot_joint_pos, sigma, (1,))
-
-
-def joint_velocity_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
-    command = _command(env, command_name)
-    return _exp_mean_square(command.target_ref_joint_vel - command.robot_joint_vel, sigma, (1,))
-
-
 def body_linear_velocity_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
     command = _command(env, command_name)
     return _exp_mean_square(command.target_ref_body_lin_vel_w - command.robot_body_lin_vel_w, sigma, (1, 2))
@@ -156,13 +113,6 @@ def action_rate_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.square(env.action_manager.action - env.action_manager.prev_action).sum(dim=1)
 
 
-def controlled_joint_velocity_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
-    """Penalize high controlled-joint speeds without constraining locked wrists."""
-
-    asset = env.scene[asset_cfg.name]
-    return torch.square(asset.data.joint_vel[:, asset_cfg.joint_ids]).sum(dim=1)
-
-
 def controlled_joint_position_limit_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """Penalize excursions beyond the articulation's soft joint limits."""
 
@@ -172,12 +122,6 @@ def controlled_joint_position_limit_penalty(env: ManagerBasedRLEnv, asset_cfg: S
     below_limit = torch.clamp(limits[..., 0] - joint_pos, min=0.0)
     above_limit = torch.clamp(joint_pos - limits[..., 1], min=0.0)
     return (below_limit + above_limit).sum(dim=1)
-
-
-def action_rate_curriculum(
-    env: ManagerBasedRLEnv, start_iter: int, end_iter: int, num_steps_per_iter: int
-) -> torch.Tensor:
-    return action_rate_penalty(env) * regularization_scale(env, start_iter, end_iter, num_steps_per_iter)
 
 
 def foot_slip_penalty(
@@ -193,29 +137,3 @@ def foot_slip_penalty(
     contact_force = torch.linalg.vector_norm(sensor.data.net_forces_w_history[:, 0, sensor_cfg.body_ids], dim=-1)
     planar_speed_sq = torch.square(asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2]).sum(dim=-1)
     return (planar_speed_sq * (contact_force > threshold)).mean(dim=-1)
-
-
-def foot_slip_curriculum(
-    env: ManagerBasedRLEnv,
-    sensor_cfg: SceneEntityCfg,
-    asset_cfg: SceneEntityCfg,
-    threshold: float,
-    start_iter: int,
-    end_iter: int,
-    num_steps_per_iter: int,
-) -> torch.Tensor:
-    return foot_slip_penalty(env, sensor_cfg, asset_cfg, threshold) * regularization_scale(
-        env, start_iter, end_iter, num_steps_per_iter
-    )
-
-
-def early_termination_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
-    """Return 1/dt on failures so RewardManager's dt integration yields one event penalty."""
-
-    return env.termination_manager.terminated.to(dtype=torch.float32) / env.step_dt
-
-
-def early_termination_penalty_curriculum(
-    env: ManagerBasedRLEnv, start_iter: int, end_iter: int, num_steps_per_iter: int
-) -> torch.Tensor:
-    return early_termination_penalty(env) * regularization_scale(env, start_iter, end_iter, num_steps_per_iter)
