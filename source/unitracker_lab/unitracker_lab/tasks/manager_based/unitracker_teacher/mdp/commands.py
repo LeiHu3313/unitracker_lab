@@ -106,6 +106,7 @@ class MotionCommand(CommandTerm):
             ema_alpha=cfg.adaptive_ema_alpha,
             tracking_error_weight=cfg.adaptive_tracking_error_weight,
             tracking_error_clip=cfg.adaptive_tracking_error_clip,
+            priority_epsilon=cfg.adaptive_priority_epsilon,
             device=self.device,
         )
         self._joint_pos = torch.as_tensor(arrays.joint_pos, device=self.device)
@@ -131,7 +132,7 @@ class MotionCommand(CommandTerm):
             "adaptive_sampling_entropy",
             "adaptive_sampling_top_probability",
             "adaptive_tracking_error_mean",
-            "adaptive_failure_score_mean",
+            "adaptive_failure_rate_mean",
         ):
             self.metrics[name] = torch.zeros(self.num_envs, device=self.device)
 
@@ -416,7 +417,7 @@ class MotionCommand(CommandTerm):
         self.metrics["adaptive_sampling_entropy"][:] = entropy
         self.metrics["adaptive_sampling_top_probability"][:] = probabilities.max()
         self.metrics["adaptive_tracking_error_mean"][:] = self._adaptive_sampler.tracking_errors.mean()
-        self.metrics["adaptive_failure_score_mean"][:] = self._adaptive_sampler.failure_scores.mean()
+        self.metrics["adaptive_failure_rate_mean"][:] = self._adaptive_sampler.failure_rates.mean()
         return True
 
     def _update_command(self) -> None:
@@ -474,10 +475,11 @@ class MotionCommandCfg(CommandTermCfg):
     locked_joint_positions: list[float] = list(G1_LOCKED_WRIST_POSITIONS)
     sampling_mode: str = "adaptive"
     adaptive_bin_duration_s: float = 0.25
-    adaptive_uniform_ratio: float = 0.25
+    adaptive_uniform_ratio: float = 0.5
     adaptive_ema_alpha: float = 0.01
     adaptive_tracking_error_weight: float = 0.25
     adaptive_tracking_error_clip: float = 5.0
+    adaptive_priority_epsilon: float = 0.1
     resampling_time_range: tuple[float, float] = (1.0e9, 1.0e9)
     debug_vis: bool = False
     current_body_visualizer_cfg: VisualizationMarkersCfg = VisualizationMarkersCfg(

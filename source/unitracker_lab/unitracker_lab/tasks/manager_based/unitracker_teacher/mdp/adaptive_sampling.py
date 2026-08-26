@@ -10,7 +10,7 @@ import torch
 
 
 class AdaptiveTrackingSampler:
-    """Sample short motion bins using failure and continuous tracking error."""
+    """Sample short motion bins using failure rate and continuous tracking error."""
 
     def __init__(
         self,
@@ -23,6 +23,7 @@ class AdaptiveTrackingSampler:
         ema_alpha: float = 0.01,
         tracking_error_weight: float = 0.25,
         tracking_error_clip: float = 5.0,
+        priority_epsilon: float = 0.1,
         device: torch.device | str = "cpu",
     ) -> None:
         if not math.isfinite(fps) or not math.isfinite(bin_duration_s) or fps <= 0.0 or bin_duration_s <= 0.0:
@@ -38,12 +39,15 @@ class AdaptiveTrackingSampler:
             or tracking_error_clip <= 0.0
         ):
             raise ValueError("Adaptive tracking-error settings must be non-negative and finite.")
+        if not math.isfinite(priority_epsilon) or priority_epsilon <= 0.0:
+            raise ValueError("adaptive priority_epsilon must be positive and finite.")
 
         self.device = torch.device(device)
         self.uniform_ratio = float(uniform_ratio)
         self.ema_alpha = float(ema_alpha)
         self.tracking_error_weight = float(tracking_error_weight)
         self.tracking_error_clip = float(tracking_error_clip)
+        self.priority_epsilon = float(priority_epsilon)
         self.bin_frames = max(1, int(round(bin_duration_s * fps)))
 
         starts = torch.as_tensor(clip_starts, dtype=torch.long, device=self.device).reshape(-1)
@@ -72,11 +76,11 @@ class AdaptiveTrackingSampler:
         self.bin_clip_ids = torch.tensor(bin_clip_ids, dtype=torch.long, device=self.device)
         self.clip_bin_offsets = torch.tensor(clip_bin_offsets, dtype=torch.long, device=self.device)
 
-        self.failure_scores = torch.zeros(self.num_bins, dtype=torch.float32, device=self.device)
-        self.tracking_errors = torch.zeros_like(self.failure_scores)
-        self.pending_failure_counts = torch.zeros_like(self.failure_scores)
-        self.pending_tracking_error_sums = torch.zeros_like(self.failure_scores)
-        self.pending_visit_counts = torch.zeros_like(self.failure_scores)
+        self.failure_rates = torch.zeros(self.num_bins, dtype=torch.float32, device=self.device)
+        self.tracking_errors = torch.zeros_like(self.failure_rates)
+        self.pending_failure_counts = torch.zeros_like(self.failure_rates)
+        self.pending_tracking_error_sums = torch.zeros_like(self.failure_rates)
+        self.pending_visit_counts = torch.zeros_like(self.failure_rates)
         self.sync_count = 0
 
     @property
@@ -95,21 +99,30 @@ class AdaptiveTrackingSampler:
         return torch.minimum(bin_ids, self.clip_bin_offsets[clip_ids + 1] - 1)
 
     def sampling_probabilities(self) -> torch.Tensor:
-        """Return clip-balanced probabilities with a uniform exploration floor."""
+        """Return clip-balanced, phase-uniform probabilities with an exploration floor.
 
-        difficulty = (self.failure_scores + self.tracking_error_weight * self.tracking_errors).clamp_min(0.0)
-        bins_per_clip = self.clip_bin_offsets[1:] - self.clip_bin_offsets[:-1]
-        uniform_within_clip = 1.0 / bins_per_clip[self.bin_clip_ids]
-        difficulty_per_clip = torch.zeros(
-            len(bins_per_clip), dtype=difficulty.dtype, device=self.device
-        ).scatter_add_(0, self.bin_clip_ids, difficulty)
-        focused = torch.where(
-            difficulty_per_clip[self.bin_clip_ids] > 0.0,
-            difficulty / difficulty_per_clip[self.bin_clip_ids].clamp_min(1.0e-12),
-            uniform_within_clip,
+        Each clip retains equal total mass. Within a clip, the uniform part is
+        proportional to bin length, so every valid reset phase has equal base
+        probability. The focused part reweights that distribution by phase
+        difficulty; an epsilon prevents insignificant score noise from
+        collapsing the distribution onto one bin.
+        """
+
+        num_clips = int(self.clip_bin_offsets.numel() - 1)
+        bin_lengths = self.bin_lengths.to(dtype=torch.float32)
+        clip_lengths = torch.zeros(num_clips, dtype=bin_lengths.dtype, device=self.device).scatter_add_(
+            0, self.bin_clip_ids, bin_lengths
         )
+        uniform_within_clip = bin_lengths / clip_lengths[self.bin_clip_ids]
+
+        difficulty = (self.failure_rates + self.tracking_error_weight * self.tracking_errors).clamp_min(0.0)
+        focused_unnormalized = uniform_within_clip * (difficulty + self.priority_epsilon)
+        focused_normalizer = torch.zeros(num_clips, dtype=focused_unnormalized.dtype, device=self.device).scatter_add_(
+            0, self.bin_clip_ids, focused_unnormalized
+        )
+        focused = focused_unnormalized / focused_normalizer[self.bin_clip_ids]
         within_clip = self.uniform_ratio * uniform_within_clip + (1.0 - self.uniform_ratio) * focused
-        return within_clip / len(bins_per_clip)
+        return within_clip / num_clips
 
     def sample(self, count: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Return ``(bin_ids, clip_ids, phase_indices)`` for RSI."""
@@ -156,12 +169,10 @@ class AdaptiveTrackingSampler:
         feedback = torch.stack(
             (self.pending_tracking_error_sums, self.pending_visit_counts, self.pending_failure_counts)
         )
-        world_size = 1
         if self._distributed_requested():
             if not torch.distributed.is_available() or not torch.distributed.is_initialized():
                 return False
             torch.distributed.all_reduce(feedback, op=torch.distributed.ReduceOp.SUM)
-            world_size = torch.distributed.get_world_size()
 
         error_sums, visit_counts, failure_counts = feedback
         visited = visit_counts > 0.0
@@ -170,9 +181,16 @@ class AdaptiveTrackingSampler:
         self.tracking_errors[visited] = (1.0 - alpha) * self.tracking_errors[visited] + alpha * observed_error[
             visited
         ]
-        # Keep the failure term independent of DDP world size. Its relative
-        # distribution still identifies the phases that actually terminate.
-        self.failure_scores.mul_(1.0 - alpha).add_(failure_counts / world_size, alpha=alpha)
+        # A failure happens before CommandTerm.compute() records the normal
+        # per-step visit for its terminal phase. Adding it back gives a
+        # phase-local failure hazard that is invariant to the number of
+        # environments and DDP ranks, unlike raw failure counts.
+        failure_trials = visit_counts + failure_counts
+        failure_observed = failure_trials > 0.0
+        observed_failure_rate = failure_counts / failure_trials.clamp_min(1.0)
+        self.failure_rates[failure_observed] = (1.0 - alpha) * self.failure_rates[
+            failure_observed
+        ] + alpha * observed_failure_rate[failure_observed]
 
         self.pending_tracking_error_sums.zero_()
         self.pending_visit_counts.zero_()
