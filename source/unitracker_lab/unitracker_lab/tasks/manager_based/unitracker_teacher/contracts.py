@@ -182,10 +182,10 @@ TRACKING_REWARD_SPECS = OrderedDict(
     )
 )
 REGULARIZATION_REWARD_WEIGHTS = {
-    "action_rate": -0.1,
+    "action_rate": -0.01,
     "controlled_joint_velocity": -1.0e-4,
     "controlled_joint_position_limits": -10.0,
-    "foot_slip": -1.0,
+    "foot_slip": -1.5,
     "early_termination": -50.0,
 }
 FOOT_CONTACT_FORCE_THRESHOLD_N = 1.0
