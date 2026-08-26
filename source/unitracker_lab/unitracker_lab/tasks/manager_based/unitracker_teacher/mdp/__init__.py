@@ -2,6 +2,7 @@
 
 from isaaclab.envs.mdp import (
     JointPositionActionCfg,
+    push_by_setting_velocity,
     randomize_rigid_body_com,
     randomize_rigid_body_mass,
     randomize_rigid_body_material,
@@ -30,6 +31,8 @@ from .rewards import (
     global_body_position_tracking_exp,
     joint_position_tracking_exp,
     joint_velocity_tracking_exp,
+    local_five_point_position_tracking_exp,
+    local_foot_orientation_tracking_exp,
 )
 from .terminations import (
     motion_end,

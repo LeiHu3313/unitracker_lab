@@ -27,8 +27,10 @@ from .contracts import (
     FOOT_CONTACT_FORCE_THRESHOLD_N,
     G1_CONTROLLED_JOINT_NAMES,
     G1_FOOT_BODY_NAMES,
+    G1_LOCAL_FIVE_POINT_BODY_NAMES,
     G1_ROOT_BODY_NAME,
     PHYSICS_DT,
+    PUSH_EVENT_SPECS,
     REGULARIZATION_REWARD_WEIGHTS,
     TERMINATION_SPECS,
     TRACKING_REWARD_SPECS,
@@ -142,6 +144,15 @@ class TeacherEventsCfg:
             "recompute_inertia": True,
         },
     )
+    external_push = EventTerm(
+        func=mdp.push_by_setting_velocity,
+        mode="interval",
+        interval_range_s=PUSH_EVENT_SPECS["interval_range_s"],
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "velocity_range": PUSH_EVENT_SPECS["velocity_range"],
+        },
+    )
 
 
 @configclass
@@ -180,6 +191,24 @@ class TeacherRewardsCfg:
             "command_name": "motion",
             "body_name": "torso_link",
             "sigma": TRACKING_REWARD_SPECS["torso_angular_velocity"]["sigma"],
+        },
+    )
+    local_five_point_position = RewTerm(
+        func=mdp.local_five_point_position_tracking_exp,
+        weight=TRACKING_REWARD_SPECS["local_five_point_position"]["weight"],
+        params={
+            "command_name": "motion",
+            "body_names": list(G1_LOCAL_FIVE_POINT_BODY_NAMES),
+            "sigma": TRACKING_REWARD_SPECS["local_five_point_position"]["sigma"],
+        },
+    )
+    local_foot_orientation = RewTerm(
+        func=mdp.local_foot_orientation_tracking_exp,
+        weight=TRACKING_REWARD_SPECS["local_foot_orientation"]["weight"],
+        params={
+            "command_name": "motion",
+            "body_names": list(G1_FOOT_BODY_NAMES),
+            "sigma": TRACKING_REWARD_SPECS["local_foot_orientation"]["sigma"],
         },
     )
     body_position = RewTerm(
@@ -300,3 +329,4 @@ class UnitrackerTeacherPlayEnvCfg(UnitrackerTeacherEnvCfg):
         self.events.physics_material = None
         self.events.torso_pelvis_com = None
         self.events.link_mass = None
+        self.events.external_push = None

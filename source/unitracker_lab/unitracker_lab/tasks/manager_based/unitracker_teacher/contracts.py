@@ -167,6 +167,10 @@ TRACKING_REWARD_SPECS = OrderedDict(
         ("torso_orientation", {"weight": 2.0, "sigma": 0.40}),
         ("torso_linear_velocity", {"weight": 1.0, "sigma": 1.00}),
         ("torso_angular_velocity", {"weight": 2.0, "sigma": 2.50}),
+        # Re-emphasize task-space endpoints that can otherwise be diluted by
+        # averaging the whole-body errors over all 15 non-root tracking links.
+        ("local_five_point_position", {"weight": 1.0, "sigma": 0.12}),
+        ("local_foot_orientation", {"weight": 1.0, "sigma": 0.30}),
         # Relative whole-body pose is the primary tracking objective.
         ("body_position", {"weight": 2.0, "sigma": 0.30}),
         ("body_orientation", {"weight": 1.0, "sigma": 0.40}),
@@ -199,6 +203,16 @@ ASSET_DR_RANGES = {
     "torso_pelvis_com_yz": (-0.01, 0.01),
     "link_mass_scale": (0.95, 1.05),
 }
+PUSH_EVENT_SPECS = {
+    # A deliberately mild planar velocity kick.  It is less frequent and
+    # smaller than the BeyondMimic baseline while foot tracking is stabilizing.
+    "interval_range_s": (4.0, 8.0),
+    "velocity_range": {
+        "x": (-0.15, 0.15),
+        "y": (-0.15, 0.15),
+    },
+}
+
 
 def oracle_observation_slices() -> dict[str, tuple[int, int]]:
     """Return the stable half-open offsets for every oracle observation block."""
@@ -261,6 +275,7 @@ def contract_dict() -> dict[str, object]:
         "reward_curriculum": REWARD_CURRICULUM,
         "termination_specs": TERMINATION_SPECS,
         "asset_dr_ranges": ASSET_DR_RANGES,
+        "push_event_specs": PUSH_EVENT_SPECS,
     }
 
 

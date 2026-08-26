@@ -84,7 +84,7 @@ commit: cd65172032893724b445448818c34165846d847d
 - 789-D Teacher Actor observation 和同构 Critic observation。
 - 23-D position target action + implicit PD。
 - 论文范式对应的 tracking reward、固定正则化权重和 early termination。
-- asset-only DR。
+- 小范围 asset DR，以及仅训练启用的轻量水平 push。
 - 唯一的 G1 Gym registration、PPO cfg、train/play、validator。
 - 纯 Python contract tests、Isaac Sim reset/step tests、PPO smoke test。
 
@@ -542,15 +542,17 @@ obs_groups = {"policy": ["teacher"], "critic": ["critic"]}
 
 | term | weight | target |
 | --- | ---: | --- |
-| global torso position | `+0.5` | torso xyz in world frame |
-| global torso orientation | `+0.5` | torso rotation, including yaw |
-| global torso linear/angular velocity | `+0.5 / +0.5` | torso world-frame velocity |
-| relative body position | `+1.0` | 15 non-root bodies in their own pelvis frame |
+| global torso position | `+2.0` | torso xyz in world frame |
+| global torso orientation | `+2.0` | torso rotation, including yaw |
+| global torso linear/angular velocity | `+1.0 / +2.0` | torso world-frame velocity |
+| local five-point position | `+1.0` | torso, both ankles, and both hands relative to pelvis |
+| local foot orientation | `+1.0` | both feet's full orientation relative to pelvis |
+| relative body position | `+2.0` | 15 non-root bodies in their own pelvis frame |
 | relative body rotation | `+1.0` | 15 non-root body orientations relative to pelvis |
 | controlled joint position | `+0.5` | 23 controlled joints |
 | controlled joint velocity | `+0.5` | 23 controlled joints |
-| body linear velocity | `+0.5` | 16-body target velocity |
-| body angular velocity | `+0.5` | 16-body target angular velocity |
+| body linear velocity | `+1.0` | 16-body target velocity |
+| body angular velocity | `+1.0` | 16-body target angular velocity |
 
 reward kernel 使用可配置 exponential tracking 形式：
 
@@ -566,6 +568,8 @@ exp(-mean_squared_error / sigma^2)
 | global torso orientation | 0.40 rad |
 | global torso linear velocity | 1.00 m/s |
 | global torso angular velocity | 2.50 rad/s |
+| local five-point position | 0.12 m |
+| local foot orientation | 0.30 rad |
 | relative body position | 0.30 m |
 | relative body orientation | 0.40 rad |
 | joint position | 0.25 rad |
@@ -614,7 +618,7 @@ tracking_failure:
 - episode length timeout：truncation，不罚 `-200`；
 - motion end：truncation，不罚 `-200`。
 
-## 10. Stage-1 asset-only DR
+## 10. Stage-1 asset DR + gentle push
 
 训练地形使用纯 plane。Teacher observation 不加噪声。
 
@@ -629,10 +633,13 @@ tracking_failure:
 | torso/pelvis CoM y/z | `[-0.01, 0.01] m` |
 | non-fixed link mass scale | `[0.95, 1.05]` |
 
-明确禁止出现在主配置中的 event/actuator 选项：
+训练配置另启用轻量水平速度扰动：每隔 `4~8 s` 给 root 当前速度叠加
+`x/y in [-0.15, 0.15] m/s`，不扰动 z 或角速度。首次 push 最早在 reset 后 4 s，
+避免把参考状态初始化问题混入扰动测试；Play 配置关闭该事件。
+
+其余 dynamics perturbation 明确禁止出现在主配置中：
 
 ```text
-push_by_setting_velocity
 apply_external_force/impulse
 randomize_actuator_gains
 torque noise
@@ -641,7 +648,7 @@ rough terrain
 observation corruption
 ```
 
-增加一个 DR whitelist test：枚举激活的 `EventTerm` 和 actuator delay，确保主任务没有上述 dynamics perturbation。Play 配置关闭全部 asset DR，使用 nominal asset。
+DR whitelist test 固定上述轻量 push 的范围，并确保主任务没有其余 dynamics perturbation。Play 配置关闭全部 DR，使用 nominal asset。
 
 ## 11. PPO 配置
 

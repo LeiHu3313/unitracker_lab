@@ -66,6 +66,8 @@ _build
 
 # Locally converted motion data
 /data/g1_lafan_40_prepared/
+/data/g1_lafan_40_grounded_qpos/
+/data/g1_lafan_40_grounded_prepared/
 
 # Tests
 tests/

@@ -34,6 +34,12 @@ def _body_id(command: MotionCommand, body_name: str) -> int:
         raise ValueError(f"Tracking body {body_name!r} is not configured for the motion command.") from exc
 
 
+def _body_ids(command: MotionCommand, body_names: list[str]) -> list[int]:
+    """Resolve selected tracking bodies while preserving the configured order."""
+
+    return [_body_id(command, body_name) for body_name in body_names]
+
+
 def _root_local_positions(
     body_pos_w: torch.Tensor, root_pos_w: torch.Tensor, root_quat_w: torch.Tensor
 ) -> torch.Tensor:
@@ -118,6 +124,15 @@ def body_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma:
     return _exp_mean_square(_root_relative_position_error(command, body_ids), sigma, (1, 2))
 
 
+def local_five_point_position_tracking_exp(
+    env: ManagerBasedRLEnv, command_name: str, body_names: list[str], sigma: float
+) -> torch.Tensor:
+    """Track the torso, ankle endpoints, and hands in their own root frames."""
+
+    command = _command(env, command_name)
+    return _exp_mean_square(_root_relative_position_error(command, _body_ids(command, body_names)), sigma, (1, 2))
+
+
 def body_orientation_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
     """Track non-root body orientation relative to each pose's root orientation."""
 
@@ -125,6 +140,21 @@ def body_orientation_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sig
     robot_relative = _root_relative_quaternions(command.robot_body_quat_w[:, 1:], command.robot_root_quat_w)
     reference_relative = _root_relative_quaternions(
         command.target_ref_body_quat_w[:, 1:], command.target_ref_body_quat_w[:, 0]
+    )
+    error = quat_error_magnitude(reference_relative, robot_relative)
+    return _exp_mean_square(error, sigma, (1,))
+
+
+def local_foot_orientation_tracking_exp(
+    env: ManagerBasedRLEnv, command_name: str, body_names: list[str], sigma: float
+) -> torch.Tensor:
+    """Track selected feet's complete yaw, pitch, and roll relative to the root."""
+
+    command = _command(env, command_name)
+    body_ids = _body_ids(command, body_names)
+    robot_relative = _root_relative_quaternions(command.robot_body_quat_w[:, body_ids], command.robot_root_quat_w)
+    reference_relative = _root_relative_quaternions(
+        command.target_ref_body_quat_w[:, body_ids], command.target_ref_body_quat_w[:, 0]
     )
     error = quat_error_magnitude(reference_relative, robot_relative)
     return _exp_mean_square(error, sigma, (1,))

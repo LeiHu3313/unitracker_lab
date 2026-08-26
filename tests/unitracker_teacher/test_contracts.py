@@ -9,6 +9,7 @@ from contracts import (
     G1_NON_ROOT_TRACKING_BODY_NAMES,
     G1_TRACKING_BODY_NAMES,
     ORACLE_OBSERVATION_DIM,
+    PUSH_EVENT_SPECS,
     REWARD_CURRICULUM,
     TERMINATION_SPECS,
     TRACKING_REWARD_SPECS,
@@ -49,6 +50,8 @@ def test_reward_curriculum_is_disabled_for_the_active_teacher_task():
 
 
 def test_relative_tracking_reward_matches_the_selected_teacher_baseline():
+    assert TRACKING_REWARD_SPECS["local_five_point_position"] == {"weight": 1.0, "sigma": 0.12}
+    assert TRACKING_REWARD_SPECS["local_foot_orientation"] == {"weight": 1.0, "sigma": 0.30}
     assert TRACKING_REWARD_SPECS["body_position"] == {"weight": 2.0, "sigma": 0.30}
     assert TRACKING_REWARD_SPECS["body_orientation"] == {"weight": 1.0, "sigma": 0.40}
     assert TRACKING_REWARD_SPECS["body_linear_velocity"] == {"weight": 1.0, "sigma": 1.00}
@@ -73,3 +76,11 @@ def test_startup_asset_randomization_stays_in_the_small_overfit_range():
         "torso_pelvis_com_yz": (-0.01, 0.01),
         "link_mass_scale": (0.95, 1.05),
     }
+
+
+def test_runtime_push_is_mild_planar_and_serialized():
+    assert PUSH_EVENT_SPECS == {
+        "interval_range_s": (4.0, 8.0),
+        "velocity_range": {"x": (-0.15, 0.15), "y": (-0.15, 0.15)},
+    }
+    assert contract_dict()["push_event_specs"] == PUSH_EVENT_SPECS
