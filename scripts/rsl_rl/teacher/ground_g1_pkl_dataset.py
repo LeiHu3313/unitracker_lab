@@ -146,7 +146,7 @@ def _foot_kinematics(
 def _foot_horizontal_speed(position_xy: np.ndarray, fps: float) -> np.ndarray:
     edge_order = 2 if len(position_xy) >= 3 else 1
     velocity = np.gradient(position_xy, 1.0 / fps, axis=0, edge_order=edge_order)
-    return np.linalg.vector_norm(velocity, axis=-1)
+    return np.linalg.norm(velocity, axis=-1)
 
 
 def _detect_contacts(kinematics: FootKinematics, fps: float, settings: GroundingSettings) -> np.ndarray:
@@ -345,7 +345,7 @@ def _load_motion(path: Path) -> tuple[str, float, tuple[str, ...], np.ndarray]:
         raise ValueError(f"{path}: joint_q must contain at least three finite frames")
     qpos = joint_q.copy()
     qpos[:, 3:7] = joint_q[:, (6, 3, 4, 5)]
-    quat_norm = np.linalg.vector_norm(qpos[:, 3:7], axis=1)
+    quat_norm = np.linalg.norm(qpos[:, 3:7], axis=1)
     if not np.allclose(quat_norm, 1.0, atol=1.0e-3):
         raise ValueError(f"{path}: root quaternion is not normalized")
     return str(blob.get("name") or path.stem), float(blob["sample_rate"]), joint_names, qpos
