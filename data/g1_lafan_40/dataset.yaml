@@ -1,4 +1,4 @@
-name: g1_lafan_40_prepared_29dof_motion17
+name: g1_lafan_40
 format_version: 1
 description: 50 Hz G1 29-DoF teacher tracking motions with 17 FK-rebuilt body states.
 motion_count: 40
@@ -35,7 +35,7 @@ npz_fields:
 
 teacher_usage:
   task: Unitracker_Teacher-v0
-  motion_argument: data/g1_lafan_40_prepared_29dof_motion17
+  motion_argument: data/g1_lafan_40
   observation_and_pose_reward_bodies: 14
   excluded_from_observation_and_pose_reward:
     - waist_roll_link

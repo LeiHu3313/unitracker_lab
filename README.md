@@ -44,7 +44,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 \
 python -m torch.distributed.run --standalone --nproc_per_node=4 \
   scripts/rsl_rl/train.py \
   --task Unitracker_Teacher-v0 \
-  --motion data/g1_lafan_40_prepared_29dof \
+  --motion data/g1_lafan_40 \
   --num_envs 1024 \
   --max_iterations 50000 \
   --seed 42 \
@@ -57,7 +57,7 @@ Play a checkpoint:
 ```bash
 python scripts/rsl_rl/play.py \
   --task Unitracker_Teacher-Play-v0 \
-  --motion data/g1_lafan_40_prepared_29dof \
+  --motion data/g1_lafan_40 \
   --checkpoint /absolute/path/to/model_2000.pt \
   --num_envs 1
 ```

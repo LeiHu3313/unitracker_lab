@@ -687,7 +687,7 @@ RslRlVecEnvWrapper
 ```bash
 "$ISAACLAB_ROOT/isaaclab.sh" -p scripts/rsl_rl/train.py \
   --task Unitracker_Teacher-v0 \
-  --motion /absolute/path/to/g1_lafan_40_prepared_29dof_motion17 \
+  --motion /absolute/path/to/g1_lafan_40 \
   --num_envs 64 \
   --max_iterations 10 \
   --seed 42 \

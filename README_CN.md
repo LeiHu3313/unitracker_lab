@@ -48,7 +48,7 @@ cd /home/hul/workspace/hl/my_projects/unitracker_lab
 
 python scripts/rsl_rl/train.py \
   --task Unitracker_Teacher-v0 \
-  --motion data/g1_lafan_40_prepared_29dof \
+  --motion data/g1_lafan_40 \
   --num_envs 64 \
   --max_iterations 10 \
   --seed 42 \
@@ -66,7 +66,7 @@ python -m torch.distributed.run \
   --nproc_per_node=4 \
   scripts/rsl_rl/train.py \
   --task Unitracker_Teacher-v0 \
-  --motion data/g1_lafan_40_prepared_29dof \
+  --motion data/g1_lafan_40 \
   --num_envs 1024 \
   --max_iterations 50000 \
   --seed 42 \
@@ -82,7 +82,7 @@ cd /home/hul/workspace/hl/my_projects/unitracker_lab
 
 python scripts/rsl_rl/play.py \
   --task Unitracker_Teacher-Play-v0 \
-  --motion data/g1_lafan_40_prepared_29dof \
+  --motion data/g1_lafan_40 \
   --checkpoint /absolute/path/to/model_2000.pt \
   --num_envs 1
 ```
