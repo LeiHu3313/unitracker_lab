@@ -1,4 +1,4 @@
-"""PPO baseline for the 789-D privileged G1 tracking teacher."""
+"""PPO baseline for the 1425-D fully privileged MimicLite-style G1 teacher."""
 
 from isaaclab.utils import configclass
 
@@ -13,14 +13,19 @@ class UnitrackerTeacherPPORunnerCfg(RslRlOnPolicyRunnerCfg):
     experiment_name = "unitracker_teacher"
     run_name = "g1_stage1"
     clip_actions = None
-    obs_groups = {"policy": ["teacher"], "critic": ["critic"]}
+    # Deliberately identical raw inputs: this is a fully privileged teacher.
+    # RSL-RL keeps independent actor/critic normalizers, which is desirable.
+    obs_groups = {
+        "policy": ["teacher_state", "teacher_reference"],
+        "critic": ["teacher_state", "teacher_reference"],
+    }
     policy = RslRlPpoActorCriticCfg(
         class_name="ActorCritic",
         init_noise_std=1.0,
         actor_obs_normalization=True,
         critic_obs_normalization=True,
-        actor_hidden_dims=[512,512,256,128],
-        critic_hidden_dims=[512,512,256,128],
+        actor_hidden_dims=[1024,512,512,256],
+        critic_hidden_dims=[1024,512,512,256],
         activation="elu",
     )
     algorithm = RslRlPpoAlgorithmCfg(

@@ -13,25 +13,15 @@ try:
     from .contracts import (
         CONTROL_FREQUENCY_HZ,
         G1_ALL_JOINT_NAMES,
-        G1_CONTROLLED_JOINT_NAMES,
-        G1_LOCKED_WRIST_JOINT_NAMES,
-        G1_LOCKED_WRIST_POSITIONS,
-        G1_TRACKING_BODY_NAMES,
+        G1_MOTION_BODY_NAMES,
         MOTION_REQUIRED_FIELDS,
-        MOTION_WRIST_POSITION_TOLERANCE_RAD,
-        MOTION_WRIST_VELOCITY_TOLERANCE_RAD_S,
     )
 except ImportError:  # allows the standalone validator to load this file without Isaac Lab
     from contracts import (  # type: ignore[no-redef]
         CONTROL_FREQUENCY_HZ,
         G1_ALL_JOINT_NAMES,
-        G1_CONTROLLED_JOINT_NAMES,
-        G1_LOCKED_WRIST_JOINT_NAMES,
-        G1_LOCKED_WRIST_POSITIONS,
-        G1_TRACKING_BODY_NAMES,
+        G1_MOTION_BODY_NAMES,
         MOTION_REQUIRED_FIELDS,
-        MOTION_WRIST_POSITION_TOLERANCE_RAD,
-        MOTION_WRIST_VELOCITY_TOLERANCE_RAD_S,
     )
 
 
@@ -66,8 +56,8 @@ class ValidatedMotion:
             "duration_s": self.duration_s,
             "source_joint_count": len(self.source_joint_names),
             "source_body_count": len(self.source_body_names),
-            "output_joint_names": list(G1_CONTROLLED_JOINT_NAMES),
-            "output_body_names": list(G1_TRACKING_BODY_NAMES),
+            "output_joint_names": list(G1_ALL_JOINT_NAMES),
+            "output_body_names": list(G1_MOTION_BODY_NAMES),
             "quaternion_convention": "WXYZ",
         }
 
@@ -122,8 +112,8 @@ class ValidatedMotionDataset:
             "motion_count": self.num_motions,
             "frame_count": self.frame_count,
             "duration_s": self.duration_s,
-            "output_joint_names": list(G1_CONTROLLED_JOINT_NAMES),
-            "output_body_names": list(G1_TRACKING_BODY_NAMES),
+            "output_joint_names": list(G1_ALL_JOINT_NAMES),
+            "output_body_names": list(G1_MOTION_BODY_NAMES),
             "quaternion_convention": "WXYZ",
             "clips": [
                 {
@@ -172,7 +162,7 @@ def _sha256_file(path: Path) -> str:
 
 
 def load_and_validate_motion(path: str | Path) -> ValidatedMotion:
-    """Validate, reorder and return the exact 23-joint/16-body teacher input."""
+    """Validate, reorder and return the exact 29-joint/17-body motion input."""
 
     resolved = Path(path).expanduser().resolve()
     if not resolved.is_file() or resolved.suffix.lower() != ".npz":
@@ -192,14 +182,11 @@ def load_and_validate_motion(path: str | Path) -> ValidatedMotion:
         joint_names = _decode_names(npz["joint_names"], "joint_names")
         body_names = _decode_names(npz["body_names"], "body_names")
 
-        if len(joint_names) not in (len(G1_CONTROLLED_JOINT_NAMES), len(G1_ALL_JOINT_NAMES)):
+        if len(joint_names) != len(G1_ALL_JOINT_NAMES) or set(joint_names) != set(G1_ALL_JOINT_NAMES):
             raise ValueError(
-                "joint_names must describe either the 23 controlled G1 joints or all 29 physical joints; "
-                f"got {len(joint_names)}."
+                "joint_names must exactly match the 29-joint G1 action/reference contract; "
+                f"got {len(joint_names)} names."
             )
-        expected_joint_set = set(G1_CONTROLLED_JOINT_NAMES if len(joint_names) == 23 else G1_ALL_JOINT_NAMES)
-        if set(joint_names) != expected_joint_set:
-            raise ValueError("joint_names does not exactly match the selected 23- or 29-joint G1 contract.")
 
         joint_pos_source = _array(npz, "joint_pos")
         joint_vel_source = _array(npz, "joint_vel")
@@ -233,17 +220,8 @@ def load_and_validate_motion(path: str | Path) -> ValidatedMotion:
         if actual_body_arrays[name].shape != expected_shape:
             raise ValueError(f"{name} has shape {actual_body_arrays[name].shape}; expected {expected_shape}.")
 
-    joint_order = _order(joint_names, G1_CONTROLLED_JOINT_NAMES, "joint_names")
-    body_order = _order(body_names, G1_TRACKING_BODY_NAMES, "body_names")
-
-    if len(joint_names) == len(G1_ALL_JOINT_NAMES):
-        wrist_order = _order(joint_names, G1_LOCKED_WRIST_JOINT_NAMES, "joint_names")
-        wrist_pos = joint_pos_source[:, wrist_order]
-        lock_pos = np.asarray(G1_LOCKED_WRIST_POSITIONS, dtype=np.float32)[None, :]
-        if float(np.max(np.abs(wrist_pos - lock_pos))) > MOTION_WRIST_POSITION_TOLERANCE_RAD:
-            raise ValueError("29-joint motion violates the zero-position wrist-lock contract.")
-        if float(np.max(np.abs(joint_vel_source[:, wrist_order]))) > MOTION_WRIST_VELOCITY_TOLERANCE_RAD_S:
-            raise ValueError("29-joint motion violates the zero-velocity wrist-lock contract.")
+    joint_order = _order(joint_names, G1_ALL_JOINT_NAMES, "joint_names")
+    body_order = _order(body_names, G1_MOTION_BODY_NAMES, "body_names")
 
     quaternions = body_quat_source[:, body_order]
     norms = np.linalg.norm(quaternions, axis=-1, keepdims=True)

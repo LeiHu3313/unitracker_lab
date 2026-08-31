@@ -29,7 +29,7 @@ def _exp_mean_square(error: torch.Tensor, sigma: float, dims: tuple[int, ...]) -
 
 def _body_id(command: MotionCommand, body_name: str) -> int:
     try:
-        return command.cfg.body_names.index(body_name)
+        return command.cfg.motion_body_names.index(body_name)
     except ValueError as exc:
         raise ValueError(f"Tracking body {body_name!r} is not configured for the motion command.") from exc
 
@@ -38,6 +38,15 @@ def _body_ids(command: MotionCommand, body_names: list[str]) -> list[int]:
     """Resolve selected tracking bodies while preserving the configured order."""
 
     return [_body_id(command, body_name) for body_name in body_names]
+
+
+def _joint_ids(command: MotionCommand, joint_names: list[str]) -> list[int]:
+    """Resolve reward joints in the command's 29-DoF action/reference order."""
+
+    try:
+        return [command.cfg.controlled_joint_names.index(joint_name) for joint_name in joint_names]
+    except ValueError as exc:
+        raise ValueError(f"Reward joint is not configured for the motion command: {joint_names}") from exc
 
 
 def _root_local_positions(
@@ -116,12 +125,13 @@ def global_body_angular_velocity_tracking_exp(
     )
 
 
-def body_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
-    """Track non-root body layout in root-local coordinates, not world position."""
+def body_position_tracking_exp(
+    env: ManagerBasedRLEnv, command_name: str, body_names: list[str], sigma: float
+) -> torch.Tensor:
+    """Track the MimicLite-aligned body subset in root-local coordinates."""
 
     command = _command(env, command_name)
-    body_ids = list(range(1, len(command.cfg.body_names)))
-    return _exp_mean_square(_root_relative_position_error(command, body_ids), sigma, (1, 2))
+    return _exp_mean_square(_root_relative_position_error(command, _body_ids(command, body_names)), sigma, (1, 2))
 
 
 def local_five_point_position_tracking_exp(
@@ -133,13 +143,16 @@ def local_five_point_position_tracking_exp(
     return _exp_mean_square(_root_relative_position_error(command, _body_ids(command, body_names)), sigma, (1, 2))
 
 
-def body_orientation_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
-    """Track non-root body orientation relative to each pose's root orientation."""
+def body_orientation_tracking_exp(
+    env: ManagerBasedRLEnv, command_name: str, body_names: list[str], sigma: float
+) -> torch.Tensor:
+    """Track the MimicLite-aligned body subset relative to each pose's root."""
 
     command = _command(env, command_name)
-    robot_relative = _root_relative_quaternions(command.robot_body_quat_w[:, 1:], command.robot_root_quat_w)
+    body_ids = _body_ids(command, body_names)
+    robot_relative = _root_relative_quaternions(command.robot_body_quat_w[:, body_ids], command.robot_root_quat_w)
     reference_relative = _root_relative_quaternions(
-        command.target_ref_body_quat_w[:, 1:], command.target_ref_body_quat_w[:, 0]
+        command.target_ref_body_quat_w[:, body_ids], command.target_ref_body_quat_w[:, 0]
     )
     error = quat_error_magnitude(reference_relative, robot_relative)
     return _exp_mean_square(error, sigma, (1,))
@@ -160,14 +173,20 @@ def local_foot_orientation_tracking_exp(
     return _exp_mean_square(error, sigma, (1,))
 
 
-def joint_position_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
+def joint_position_tracking_exp(
+    env: ManagerBasedRLEnv, command_name: str, joint_names: list[str], sigma: float
+) -> torch.Tensor:
     command = _command(env, command_name)
-    return _exp_mean_square(command.target_ref_joint_pos - command.robot_joint_pos, sigma, (1,))
+    joint_ids = _joint_ids(command, joint_names)
+    return _exp_mean_square(command.target_ref_joint_pos[:, joint_ids] - command.robot_joint_pos[:, joint_ids], sigma, (1,))
 
 
-def joint_velocity_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:
+def joint_velocity_tracking_exp(
+    env: ManagerBasedRLEnv, command_name: str, joint_names: list[str], sigma: float
+) -> torch.Tensor:
     command = _command(env, command_name)
-    return _exp_mean_square(command.target_ref_joint_vel - command.robot_joint_vel, sigma, (1,))
+    joint_ids = _joint_ids(command, joint_names)
+    return _exp_mean_square(command.target_ref_joint_vel[:, joint_ids] - command.robot_joint_vel[:, joint_ids], sigma, (1,))
 
 
 def body_linear_velocity_tracking_exp(env: ManagerBasedRLEnv, command_name: str, sigma: float) -> torch.Tensor:

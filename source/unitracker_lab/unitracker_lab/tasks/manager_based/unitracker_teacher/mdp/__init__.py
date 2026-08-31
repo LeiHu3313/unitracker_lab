@@ -11,7 +11,7 @@ from isaaclab.envs.mdp import (
 
 from .commands import MotionCommand, MotionCommandCfg
 from .curriculum import linear_curriculum_scale, regularization_scale
-from .observations import teacher_oracle_observation
+from .observations import teacher_reference_observation, teacher_state_observation
 from .rewards import (
     action_rate_curriculum,
     action_rate_penalty,

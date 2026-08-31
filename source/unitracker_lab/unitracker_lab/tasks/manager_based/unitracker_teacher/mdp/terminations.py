@@ -28,7 +28,7 @@ def projected_gravity_tracking_failure(env: ManagerBasedRLEnv, command_name: str
 
     command = _command(env, command_name)
     gravity_w = command.robot.data.GRAVITY_VEC_W
-    root_id = command.cfg.body_names.index(command.cfg.root_body_name)
+    root_id = command.cfg.motion_body_names.index(command.cfg.root_body_name)
     reference_gravity_root = math_utils.quat_apply_inverse(command.target_ref_body_quat_w[:, root_id], gravity_w)
     robot_gravity_root = math_utils.quat_apply_inverse(command.robot_root_quat_w, gravity_w)
     return torch.linalg.vector_norm(robot_gravity_root - reference_gravity_root, dim=-1) > threshold
@@ -40,7 +40,7 @@ def pelvis_position_tracking_failure(
     """Terminate only when pelvis height drifts too far from its reference."""
 
     command = _command(env, command_name)
-    body_id = command.cfg.body_names.index(body_name)
+    body_id = command.cfg.motion_body_names.index(body_name)
     height_error = torch.abs(
         command.target_ref_body_pos_w[:, body_id, 2] - command.robot_body_pos_w[:, body_id, 2]
     )

@@ -1,5 +1,11 @@
 # G1 UniTracker Stage-1 Tracking Teacher 实现计划
 
+> **当前运行合同（2026-08-28）**：Teacher 已迁移为完整 29-DoF
+> action/reference contract。六个 wrist 不再锁零，prepared motion 必须包含完整
+> 29 个关节，actor/critic 输入为相同的 1425-D `teacher_state` +
+> `teacher_reference`。下文保留了最初 23-DoF 方案的设计
+> 记录；凡与本说明冲突者，均以 `contracts.py` 和测试为准。
+
 ## 0. 结论
 
 当前仓库只保留一条 G1 Teacher 链路：
@@ -7,9 +13,9 @@
 ```text
 prepared G1 reference motion
   -> G1MotionCommand（RSI、严格的 t -> t+1 时序）
-  -> 16-body / 23-joint privileged oracle observation
+  -> 17-body motion state / 14-body privileged teacher observation
   -> RSL-RL PPO Teacher
-  -> 23-D joint-position target
+  -> 29-D joint-position target
   -> G1 implicit PD
   -> whole-body tracking reward
   -> checkpoint / play / evaluation
@@ -92,7 +98,7 @@ commit: cd65172032893724b445448818c34165846d847d
 
 - 重建 `tasks/manager_based/unitracker_teacher/`，只留下 G1 task、G1 MDP 和 G1 agent 配置。
 - `assets/` 删除其他机器人资产，只保留 G1 Teacher 运行所需资产以及与任务无关的项目公共资源。
-- 重写现有 `scripts/rsl_rl/teacher/train_teacher.py`、`train_teacher.sh` 和 `validate_motion_npz.py`，使其只接受 G1 contract。
+- 训练、策略播放与参考数据播放入口统一放在 `scripts/rsl_rl/`，只接受 G1 contract。
 - 删除只描述旧机器人训练路线的实现文档，避免出现两个相互冲突的 Teacher 定义。
 - 不提供旧 checkpoint、旧 motion schema 或旧 Gym ID 语义的兼容适配。
 
@@ -142,11 +148,10 @@ source/unitracker_lab/unitracker_lab/
         ├── __init__.py
         └── rsl_rl_ppo_cfg.py
 
-scripts/rsl_rl/teacher/
-├── train_teacher.py
-├── train_teacher.sh
-├── play_teacher.py
-└── validate_motion_npz.py
+scripts/rsl_rl/
+├── train.py
+├── play.py
+├── play_motion_reference.py
 
 tests/unitracker_teacher/
 ├── test_contracts.py
@@ -392,17 +397,7 @@ body_ang_vel_w
 `start/length`。采样顺序是“均匀选 motion，再在该 motion 的 `[0, F-2]` 内均匀选 RSI phase”，
 因此短轨迹不会被长轨迹压低采样概率，`k -> k+1` 也不会穿过 clip 边界。
 
-对于 `xyz + quaternion(WXYZ) + 29 joint qpos` 的 G1 数据，可使用独立转换脚本：
-
-```bash
-python scripts/rsl_rl/teacher/convert_g1_qpos_dataset.py \
-  /path/to/qpos_dataset \
-  /path/to/prepared_teacher_dataset
-```
-
-转换器将 root quaternion 做 SLERP、其他自由度线性重采样到 50 Hz，锁定 6 个 wrist，随后按当前
-Teacher URDF 做 FK，并由重采样后的轨迹计算 joint/body 速度。输出包含每条 motion 的 NPZ、
-`motions.lst` 和带源路径/hash 的 `conversion_manifest.json`。
+当前分支只保留运行入口，训练数据使用已准备好的 50 Hz、29-joint prepared NPZ。
 
 ## 7. `t -> t+1` 时序契约
 
@@ -690,17 +685,16 @@ RslRlVecEnvWrapper
 ### 12.1 训练入口
 
 ```bash
-scripts/rsl_rl/teacher/train_teacher.sh \
-  --motion /absolute/path/to/prepared_g1_dataset \
+"$ISAACLAB_ROOT/isaaclab.sh" -p scripts/rsl_rl/train.py \
   --task Unitracker_Teacher-v0 \
+  --motion /absolute/path/to/g1_lafan_40_prepared_29dof_motion17 \
   --num_envs 64 \
   --max_iterations 10 \
   --seed 42 \
   --headless
 ```
 
-生产时再提高到 8192。脚本不内置个人数据路径、不默认 resume。
-`--motion` 也可传单个 prepared NPZ，或每行一个 NPZ 路径的 `.txt/.lst` manifest；manifest 中的相对路径以 manifest 所在目录解析。
+生产时再提高到 8192。通用的 `train.py` 和 `play.py` 都接受 `--motion`：可传单个 NPZ、NPZ 目录或 `.txt/.lst` manifest，并在创建环境前写入当前任务的 `commands.motion.motion_file`。没有 motion command 的任务不受影响。
 
 ### 12.2 Play task
 

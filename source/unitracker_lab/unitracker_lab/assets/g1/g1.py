@@ -11,7 +11,7 @@ from isaaclab.assets import ArticulationCfg
 from unitracker_lab.tasks.manager_based.unitracker_teacher.contracts import (
     G1_CONTROLLED_JOINT_NAMES,
     G1_DEFAULT_JOINT_POSITIONS,
-    G1_LOCKED_WRIST_JOINT_NAMES,
+    G1_WRIST_JOINT_NAMES,
 )
 
 ARMATURE_5020 = 0.003609725
@@ -135,8 +135,8 @@ G1_29DOF_CFG = ArticulationCfg(
             damping=DAMPING_5020,
             armature=ARMATURE_5020,
         ),
-        "locked_wrists": ImplicitActuatorCfg(
-            joint_names_expr=list(G1_LOCKED_WRIST_JOINT_NAMES),
+        "wrists": ImplicitActuatorCfg(
+            joint_names_expr=list(G1_WRIST_JOINT_NAMES),
             effort_limit_sim={".*_wrist_roll_joint": 25.0, ".*_wrist_pitch_joint": 5.0, ".*_wrist_yaw_joint": 5.0},
             velocity_limit_sim={".*_wrist_roll_joint": 37.0, ".*_wrist_pitch_joint": 22.0, ".*_wrist_yaw_joint": 22.0},
             stiffness={
@@ -166,6 +166,8 @@ def _action_scale(joint_name: str) -> float:
         return 0.25 * 88.0 / STIFFNESS_7520_14
     if "ankle" in joint_name or joint_name in ("waist_roll_joint", "waist_pitch_joint"):
         return 0.25 * 50.0 / (2.0 * STIFFNESS_5020)
+    if "wrist_pitch" in joint_name or "wrist_yaw" in joint_name:
+        return 0.25 * 5.0 / STIFFNESS_4010
     return 0.25 * 25.0 / STIFFNESS_5020
 
 

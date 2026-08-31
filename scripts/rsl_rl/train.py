@@ -9,6 +9,8 @@
 
 import argparse
 import sys
+from dataclasses import MISSING
+from pathlib import Path
 
 from isaaclab.app import AppLauncher
 
@@ -22,6 +24,12 @@ parser.add_argument("--video_length", type=int, default=200, help="Length of the
 parser.add_argument("--video_interval", type=int, default=2000, help="Interval between video recordings (in steps).")
 parser.add_argument("--num_envs", type=int, default=None, help="Number of environments to simulate.")
 parser.add_argument("--task", type=str, default=None, help="Name of the task.")
+parser.add_argument(
+    "--motion",
+    type=Path,
+    default=None,
+    help="Motion input for tasks with commands.motion: an NPZ file, NPZ directory, or .txt/.lst manifest.",
+)
 parser.add_argument(
     "--agent", type=str, default="rsl_rl_cfg_entry_point", help="Name of the RL agent configuration entry point."
 )
@@ -120,6 +128,23 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     agent_cfg.max_iterations = (
         args_cli.max_iterations if args_cli.max_iterations is not None else agent_cfg.max_iterations
     )
+
+    # Configure a motion input when the selected task exposes a motion command.
+    # This keeps the generic entry point usable by tasks that do not use motions.
+    motion_cfg = getattr(getattr(env_cfg, "commands", None), "motion", None)
+    if args_cli.motion is not None:
+        motion_path = args_cli.motion.expanduser().resolve()
+        if not motion_path.exists():
+            raise FileNotFoundError(f"Motion input does not exist: {motion_path}")
+        if motion_cfg is None or not hasattr(motion_cfg, "motion_file"):
+            raise ValueError(f"Task '{args_cli.task}' does not define a commands.motion.motion_file input.")
+        motion_cfg.motion_file = str(motion_path)
+        print(f"[INFO] Motion input: {motion_path}")
+    elif motion_cfg is not None and getattr(motion_cfg, "motion_file", None) is MISSING:
+        raise ValueError(
+            f"Task '{args_cli.task}' requires a motion input. "
+            "Pass --motion <prepared .npz, directory, or .txt/.lst manifest>."
+        )
 
     # set the environment seed
     # note: certain randomizations occur in the environment initialization so we set the seed here

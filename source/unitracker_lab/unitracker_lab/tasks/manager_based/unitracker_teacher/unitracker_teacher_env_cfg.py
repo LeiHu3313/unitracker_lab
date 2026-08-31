@@ -28,6 +28,8 @@ from .contracts import (
     G1_CONTROLLED_JOINT_NAMES,
     G1_FOOT_BODY_NAMES,
     G1_LOCAL_FIVE_POINT_BODY_NAMES,
+    G1_REWARD_BODY_NAMES,
+    G1_REWARD_JOINT_NAMES,
     G1_ROOT_BODY_NAME,
     PHYSICS_DT,
     PUSH_EVENT_SPECS,
@@ -69,6 +71,26 @@ class TeacherSceneCfg(InteractiveSceneCfg):
     )
 
 
+def _green_reference_robot_cfg() -> ArticulationCfg:
+    """Return a visual-only G1 reference articulation for policy playback."""
+
+    spawn_cfg = G1_29DOF_CFG.spawn.replace(
+        activate_contact_sensors=False,
+        collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
+        rigid_props=G1_29DOF_CFG.spawn.rigid_props.replace(disable_gravity=True),
+        articulation_props=G1_29DOF_CFG.spawn.articulation_props.replace(enabled_self_collisions=False),
+        visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.15, 0.85, 0.25), opacity=1.0),
+    )
+    return G1_29DOF_CFG.replace(prim_path="{ENV_REGEX_NS}/ReferenceRobot", spawn=spawn_cfg)
+
+
+@configclass
+class TeacherPlaySceneCfg(TeacherSceneCfg):
+    """Teacher scene with a visual-only reference G1 for policy playback."""
+
+    reference_robot: ArticulationCfg = _green_reference_robot_cfg()
+
+
 @configclass
 class TeacherCommandsCfg:
     motion = mdp.MotionCommandCfg(motion_file=MISSING)
@@ -88,23 +110,23 @@ class TeacherActionsCfg:
 @configclass
 class TeacherObservationsCfg:
     @configclass
-    class TeacherCfg(ObsGroup):
-        oracle = ObsTerm(func=mdp.teacher_oracle_observation, params={"command_name": "motion"})
+    class TeacherStateCfg(ObsGroup):
+        state = ObsTerm(func=mdp.teacher_state_observation, params={"command_name": "motion"})
 
         def __post_init__(self) -> None:
             self.enable_corruption = False
             self.concatenate_terms = True
 
     @configclass
-    class CriticCfg(ObsGroup):
-        oracle = ObsTerm(func=mdp.teacher_oracle_observation, params={"command_name": "motion"})
+    class TeacherReferenceCfg(ObsGroup):
+        reference = ObsTerm(func=mdp.teacher_reference_observation, params={"command_name": "motion"})
 
         def __post_init__(self) -> None:
             self.enable_corruption = False
             self.concatenate_terms = True
 
-    teacher: TeacherCfg = TeacherCfg()
-    critic: CriticCfg = CriticCfg()
+    teacher_state: TeacherStateCfg = TeacherStateCfg()
+    teacher_reference: TeacherReferenceCfg = TeacherReferenceCfg()
 
 
 @configclass
@@ -214,22 +236,38 @@ class TeacherRewardsCfg:
     body_position = RewTerm(
         func=mdp.body_position_tracking_exp,
         weight=TRACKING_REWARD_SPECS["body_position"]["weight"],
-        params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["body_position"]["sigma"]},
+        params={
+            "command_name": "motion",
+            "body_names": list(G1_REWARD_BODY_NAMES),
+            "sigma": TRACKING_REWARD_SPECS["body_position"]["sigma"],
+        },
     )
     body_orientation = RewTerm(
         func=mdp.body_orientation_tracking_exp,
         weight=TRACKING_REWARD_SPECS["body_orientation"]["weight"],
-        params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["body_orientation"]["sigma"]},
+        params={
+            "command_name": "motion",
+            "body_names": list(G1_REWARD_BODY_NAMES),
+            "sigma": TRACKING_REWARD_SPECS["body_orientation"]["sigma"],
+        },
     )
     joint_position = RewTerm(
         func=mdp.joint_position_tracking_exp,
         weight=TRACKING_REWARD_SPECS["joint_position"]["weight"],
-        params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["joint_position"]["sigma"]},
+        params={
+            "command_name": "motion",
+            "joint_names": list(G1_REWARD_JOINT_NAMES),
+            "sigma": TRACKING_REWARD_SPECS["joint_position"]["sigma"],
+        },
     )
     joint_velocity = RewTerm(
         func=mdp.joint_velocity_tracking_exp,
         weight=TRACKING_REWARD_SPECS["joint_velocity"]["weight"],
-        params={"command_name": "motion", "sigma": TRACKING_REWARD_SPECS["joint_velocity"]["sigma"]},
+        params={
+            "command_name": "motion",
+            "joint_names": list(G1_REWARD_JOINT_NAMES),
+            "sigma": TRACKING_REWARD_SPECS["joint_velocity"]["sigma"],
+        },
     )
     body_linear_velocity = RewTerm(
         func=mdp.body_linear_velocity_tracking_exp,
@@ -320,12 +358,14 @@ class UnitrackerTeacherEnvCfg(ManagerBasedRLEnvCfg):
 class UnitrackerTeacherPlayEnvCfg(UnitrackerTeacherEnvCfg):
     """Deterministic clip replay with all Stage-1 randomization disabled."""
 
+    scene: TeacherPlaySceneCfg = TeacherPlaySceneCfg(num_envs=1, env_spacing=2.5)
+
     def __post_init__(self) -> None:
         super().__post_init__()
         self.scene.num_envs = 1
         self.episode_length_s = 1.0e9
         self.commands.motion.sampling_mode = "eval"
-        self.commands.motion.debug_vis = True
+        self.commands.motion.debug_vis = False
         self.events.physics_material = None
         self.events.torso_pelvis_com = None
         self.events.link_mass = None
