@@ -7,3 +7,4 @@
 - 修复 `teacher_reference` 的多帧 ground-anchor 广播。
 - whole-body pose reward 改为 14 body；joint position / velocity reward 改为 25 DoF，去除左右 ankle pitch / roll。
 - adaptive sampling 改为 14 body、reward sigma 归一化的 failure/error priority；失败时 80% 同 clip 回退 25–124 帧，末 50 帧和 timeout 保持全局自适应重采样。
+- 保留 `data/g1_lafan_40_prepared_29dof_motion17`；新增其 `dataset.yaml`，删除旧的本地输入数据目录 `g1_lafan_40_prepared_29dof` 与 `lafan_29dof_g1`。

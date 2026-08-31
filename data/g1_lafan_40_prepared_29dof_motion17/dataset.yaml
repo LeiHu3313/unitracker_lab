@@ -1,0 +1,49 @@
+name: g1_lafan_40_prepared_29dof_motion17
+format_version: 1
+description: 50 Hz G1 29-DoF teacher tracking motions with 17 FK-rebuilt body states.
+motion_count: 40
+total_frames: 441140
+fps: 50.0
+storage: git-lfs
+
+npz_fields:
+  joint_names: G1_ALL_JOINT_NAMES order from contracts.py
+  joint_pos: [frames, 29]
+  joint_vel: [frames, 29]
+  body_names:
+    - pelvis
+    - left_hip_yaw_link
+    - left_knee_link
+    - left_ankle_roll_link
+    - right_hip_yaw_link
+    - right_knee_link
+    - right_ankle_roll_link
+    - waist_roll_link
+    - torso_link
+    - left_shoulder_yaw_link
+    - left_elbow_link
+    - left_wrist_yaw_link
+    - left_rubber_hand
+    - right_shoulder_yaw_link
+    - right_elbow_link
+    - right_wrist_yaw_link
+    - right_rubber_hand
+  body_pos_w: [frames, 17, 3]
+  body_quat_w: [frames, 17, 4] # WXYZ
+  body_lin_vel_w: [frames, 17, 3]
+  body_ang_vel_w: [frames, 17, 3]
+
+teacher_usage:
+  task: Unitracker_Teacher-v0
+  motion_argument: data/g1_lafan_40_prepared_29dof_motion17
+  observation_and_pose_reward_bodies: 14
+  excluded_from_observation_and_pose_reward:
+    - waist_roll_link
+    - left_rubber_hand
+    - right_rubber_hand
+  all_29_joints_are_controlled_and_reference_conditioned: true
+
+provenance:
+  generator: scripts/rsl_rl/rebuild_teacher_motion_body_states.py
+  source: repaired 29-DoF prepared G1 motions
+  body_state_method: G1 URDF forward kinematics
