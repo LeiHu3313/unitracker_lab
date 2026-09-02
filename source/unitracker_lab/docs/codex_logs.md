@@ -9,4 +9,5 @@
 - adaptive sampling 改为 14 body、reward sigma 归一化的 failure/error priority；失败时 80% 同 clip 回退 25–124 帧，末 50 帧和 timeout 保持全局自适应重采样。
 - 保留 `data/g1_lafan_40`；新增其 `dataset.yaml`，删除旧的本地输入数据目录。
 - `rsl_rl` 多卡初始化改为先 `torch.cuda.set_device(local_rank)`、后初始化 NCCL process group，修复非零 rank 首次 collective 的 CUDA invalid argument。
+- `rsl_rl` 首轮模型同步改为逐个 CUDA state tensor 的原地 broadcast，不再序列化 GPU `state_dict` 到 `broadcast_object_list`。
 - 重写 `g1_tracking_teacher_implementation_plan.md`，改为当前 29DoF / 17-body data / 1425D privileged teacher 的训练配置说明。
