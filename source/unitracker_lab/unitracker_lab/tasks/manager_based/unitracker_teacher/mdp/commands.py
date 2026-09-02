@@ -728,7 +728,7 @@ class MotionCommandCfg(CommandTermCfg):
         markers={
             "body": sim_utils.SphereCfg(
                 radius=0.035,
-                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(1.0, 0.2, 0.1)),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.15, 0.85, 0.25)),
             )
         },
     )

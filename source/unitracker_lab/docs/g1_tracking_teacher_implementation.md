@@ -143,13 +143,16 @@ PPO 使用 24 rollout steps / env、50000 iteration、每 500 iteration 保存�
 
 多卡启动使用 `torch.distributed.run` 加 `--distributed`。`--num_envs` 是**每个 rank**的环境数；两卡需要总计 3076 env 时，每卡应设为 1538。
 
-`rsl_rl` 的 `OnPolicyRunner` 必须先执行 `torch.cuda.set_device(LOCAL_RANK)`、再 `init_process_group(backend="nccl")`。这是避免 rank 1 初始化到默认 `cuda:0` 并在首次 NCCL collective 报 `invalid argument` 的必要顺序。
+`rsl_rl` 的 `OnPolicyRunner` 会先执行 `torch.cuda.set_device(LOCAL_RANK)`、再初始化 NCCL process group；首轮模型状态同步使用逐个 CUDA state tensor 的原地 broadcast，避免通过 `broadcast_object_list` 序列化 GPU `state_dict`。这两项作为多卡训练的健壮性和性能保障保留。
+
+此外，当前 DSW 容器的 NCCL shared-memory transport 会在首次 collective 报 `invalid argument`；即使保留上述实现，该服务器启动多卡训练时仍需设置 `NCCL_SHM_DISABLE=1`，禁用 SHM 并改用网络 transport。这是服务器运行环境限制，不是 Teacher 或 RSL 算法逻辑差异。
 
 两卡示例：
 
 ```bash
 cd /mnt/workspace/Project_hul/unitracker_lab
 export CUDA_VISIBLE_DEVICES=0,1
+export NCCL_SHM_DISABLE=1
 
 python -m torch.distributed.run --standalone --nproc_per_node=2 \
   scripts/rsl_rl/train.py \

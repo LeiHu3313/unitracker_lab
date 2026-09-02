@@ -225,16 +225,24 @@ TRACKING_REWARD_SPECS = OrderedDict(
     )
 )
 REGULARIZATION_REWARD_WEIGHTS = {
-    "action_rate": -0.01,
+    # MimicLite G1 baseline: action_rate_l2 returns a negative squared
+    # difference and uses weight 0.1.  Our term returns the positive squared
+    # difference, so the equivalent Isaac Lab weight is -0.1.
+    "action_rate": -0.1,
     "controlled_joint_velocity": -1.0e-4,
     "controlled_joint_position_limits": -10.0,
-    "foot_slip": -1.5,
+    "foot_slip": -0.5,
     "early_termination": -50.0,
+    "survival": 4.0,
 }
 FOOT_CONTACT_FORCE_THRESHOLD_N = 1.0
 TERMINATION_SPECS = {
-    "projected_gravity": {"threshold": 0.8},
-    "pelvis_position": {"threshold": 0.4},
+    # Match mimic-lite/cfg/task/termination/base.yaml.  Position errors are in
+    # metres and orientation errors are quaternion-angle magnitudes in radians.
+    "root_position": {"threshold": 0.4, "min_steps": 25},
+    "root_orientation": {"threshold": 1.2, "min_steps": 25},
+    "body_position": {"threshold": 0.4, "min_steps": 5},
+    "body_orientation": {"threshold": 1.2, "min_steps": 5},
 }
 
 REWARD_CURRICULUM = None

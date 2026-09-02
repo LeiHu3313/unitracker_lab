@@ -30,7 +30,6 @@ from .contracts import (
     G1_LOCAL_FIVE_POINT_BODY_NAMES,
     G1_REWARD_BODY_NAMES,
     G1_REWARD_JOINT_NAMES,
-    G1_ROOT_BODY_NAME,
     PHYSICS_DT,
     PUSH_EVENT_SPECS,
     REGULARIZATION_REWARD_WEIGHTS,
@@ -71,24 +70,11 @@ class TeacherSceneCfg(InteractiveSceneCfg):
     )
 
 
-def _green_reference_robot_cfg() -> ArticulationCfg:
-    """Return a visual-only G1 reference articulation for policy playback."""
-
-    spawn_cfg = G1_29DOF_CFG.spawn.replace(
-        activate_contact_sensors=False,
-        collision_props=sim_utils.CollisionPropertiesCfg(collision_enabled=False),
-        rigid_props=G1_29DOF_CFG.spawn.rigid_props.replace(disable_gravity=True),
-        articulation_props=G1_29DOF_CFG.spawn.articulation_props.replace(enabled_self_collisions=False),
-        visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.15, 0.85, 0.25), opacity=1.0),
-    )
-    return G1_29DOF_CFG.replace(prim_path="{ENV_REGEX_NS}/ReferenceRobot", spawn=spawn_cfg)
-
-
 @configclass
 class TeacherPlaySceneCfg(TeacherSceneCfg):
-    """Teacher scene with a visual-only reference G1 for policy playback."""
+    """Teacher scene with physics-free reference markers for policy playback."""
 
-    reference_robot: ArticulationCfg = _green_reference_robot_cfg()
+    reference_robot: ArticulationCfg | None = None
 
 
 @configclass
@@ -310,22 +296,49 @@ class TeacherRewardsCfg:
         func=mdp.early_termination_penalty,
         weight=REGULARIZATION_REWARD_WEIGHTS["early_termination"],
     )
+    survival = RewTerm(
+        func=mdp.survival_reward,
+        weight=REGULARIZATION_REWARD_WEIGHTS["survival"],
+    )
 
 
 @configclass
 class TeacherTerminationsCfg:
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     motion_end = DoneTerm(func=mdp.motion_end, time_out=True, params={"command_name": "motion"})
-    projected_gravity = DoneTerm(
-        func=mdp.projected_gravity_tracking_failure,
-        params={"command_name": "motion", **TERMINATION_SPECS["projected_gravity"]},
-    )
-    pelvis_position = DoneTerm(
-        func=mdp.pelvis_position_tracking_failure,
+    root_position = DoneTerm(
+        func=mdp.root_position_tracking_failure,
+        time_out=True,
         params={
             "command_name": "motion",
-            "body_name": G1_ROOT_BODY_NAME,
-            **TERMINATION_SPECS["pelvis_position"],
+            "body_name": "torso_link",
+            **TERMINATION_SPECS["root_position"],
+        },
+    )
+    root_orientation = DoneTerm(
+        func=mdp.root_orientation_tracking_failure,
+        params={
+            "command_name": "motion",
+            "body_name": "torso_link",
+            **TERMINATION_SPECS["root_orientation"],
+        },
+    )
+    body_position = DoneTerm(
+        func=mdp.body_position_tracking_failure,
+        params={
+            "command_name": "motion",
+            "body_names": list(G1_REWARD_BODY_NAMES),
+            "anchor_body_name": "torso_link",
+            **TERMINATION_SPECS["body_position"],
+        },
+    )
+    body_orientation = DoneTerm(
+        func=mdp.body_orientation_tracking_failure,
+        params={
+            "command_name": "motion",
+            "body_names": list(G1_REWARD_BODY_NAMES),
+            "anchor_body_name": "torso_link",
+            **TERMINATION_SPECS["body_orientation"],
         },
     )
 
@@ -365,7 +378,10 @@ class UnitrackerTeacherPlayEnvCfg(UnitrackerTeacherEnvCfg):
         self.scene.num_envs = 1
         self.episode_length_s = 1.0e9
         self.commands.motion.sampling_mode = "eval"
-        self.commands.motion.debug_vis = False
+        # Green target-body markers are rendered by ``MotionCommand``.  Unlike
+        # an articulated ghost robot, these USD point instancers have no
+        # colliders, masses, or contact response.
+        self.commands.motion.debug_vis = True
         self.events.physics_material = None
         self.events.torso_pelvis_com = None
         self.events.link_mass = None

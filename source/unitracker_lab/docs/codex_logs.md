@@ -1,5 +1,10 @@
 # Codex change log
 
+## 2026-09-02
+
+- 保留 `rsl_rl` 的多卡健壮性实现：先绑定 `LOCAL_RANK` 对应 GPU、再初始化 NCCL，并使用逐个 CUDA state tensor 的原地 broadcast 同步首轮模型状态。
+- 确认当前 DSW 容器的首次 NCCL collective 失败源于 shared-memory transport；该服务器启动多卡训练时需设置 `NCCL_SHM_DISABLE=1`，此环境规避与 Teacher / RSL 算法逻辑无关。
+
 ## 2026-08-31
 
 - Teacher observation 改为 `teacher_state`（677D）+ `teacher_reference`（748D），actor / critic 输入均为 1425D。

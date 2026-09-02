@@ -205,6 +205,12 @@ def action_rate_penalty(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.square(env.action_manager.action - env.action_manager.prev_action).sum(dim=1)
 
 
+def survival_reward(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Return the per-step survival reward used by the MimicLite G1 baseline."""
+
+    return torch.ones(env.num_envs, dtype=torch.float32, device=env.device)
+
+
 def controlled_joint_velocity_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor:
     """Penalize high controlled-joint speeds without constraining locked wrists."""
 
