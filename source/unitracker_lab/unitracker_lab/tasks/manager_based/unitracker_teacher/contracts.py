@@ -209,13 +209,14 @@ TRACKING_REWARD_SPECS = OrderedDict(
         ("torso_orientation", {"weight": 0.5, "sigma": 0.40}),
         ("torso_linear_velocity", {"weight": 0.5, "sigma": 1.00}),
         ("torso_angular_velocity", {"weight": 0.5, "sigma": 2.50}),
-        # Re-emphasize task-space endpoints that can otherwise be diluted by
-        # averaging the whole-body errors over all 15 non-root tracking links.
+
         ("local_five_point_position", {"weight": 0.5, "sigma": 0.12}),
         ("local_foot_orientation", {"weight": 0.1, "sigma": 0.30}),
+
         # Relative whole-body pose is the primary tracking objective.
         ("body_position", {"weight": 1.0, "sigma": 0.30}),
         ("body_orientation", {"weight": 1.0, "sigma": 0.40}),
+
         # Joint and whole-body dynamical tracking.
         ("joint_position", {"weight": 0.5, "sigma": 0.25}),
         ("joint_velocity", {"weight": 0.5, "sigma": 2.50}),

@@ -67,7 +67,7 @@ python -m torch.distributed.run \
   scripts/rsl_rl/train.py \
   --task Unitracker_Teacher-v0 \
   --motion data/g1_lafan_40 \
-  --num_envs 1024 \
+  --num_envs 3072 \
   --max_iterations 50000 \
   --seed 42 \
   --distributed \
